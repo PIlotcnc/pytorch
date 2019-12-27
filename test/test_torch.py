@@ -12408,6 +12408,19 @@ class TestTorchDeviceType(TestCase):
         y = nhwc.permute(0, 1, 3, 2).permute(0, 1, 3, 2)
         self.assertTrue(y.is_contiguous(memory_format=torch.channels_last))
 
+    def test_memory_format_factory(self, device):
+        f = [torch.zeros, torch.ones, torch.empty]
+        for factory in f:
+            tensor = factory((10, 3, 4, 4), memory_format=torch.channels_last)
+            self.assertTrue(tensor.is_contiguous(memory_format=torch.channels_last))
+            tensor = factory((10, 3, 4, 4))
+            self.assertTrue(tensor.is_contiguous())
+
+        tensor = torch.fill((10, 3, 4, 4), 7, memory_format=torch.channels_last)
+        self.assertTrue(tensor.is_contiguous(memory_format=torch.channels_last))
+        tensor = torch.fill((10, 3, 4, 4), 7)
+        self.assertTrue(tensor.is_contiguous())
+
     def test_resize_as_preserves_strides(self, device):
         x = torch.empty(2, 3).t()
         old_strides = x.stride()

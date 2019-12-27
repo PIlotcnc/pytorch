@@ -314,19 +314,27 @@ Tensor& eye_out_cpu(Tensor& result, int64_t n, int64_t m) {
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ full ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Tensor full(IntArrayRef size, Scalar fill_value, const TensorOptions& options) {
+Tensor full(
+    IntArrayRef size,
+    Scalar fill_value,
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
   if (options.layout() == kSparse) {
     AT_ERROR("full(...) is not implemented for sparse layout");
   }
-  auto result = at::empty(size, options);
+  auto result = at::empty(size, options, optional_memory_format);
   return result.fill_(fill_value);
 }
 
-Tensor& full_out(Tensor& result, IntArrayRef size, Scalar fill_value) {
+Tensor& full_out(
+    Tensor& result,
+    IntArrayRef size,
+    Scalar fill_value,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
   if (result.is_sparse()) {
     AT_ERROR("full(...) is not implemented for sparse layout");
   }
-  result.resize_(size);
+  result.resize_(size, optional_memory_format);
   return result.fill_(fill_value);
 }
 
@@ -383,12 +391,19 @@ Tensor logspace(
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ones ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Tensor ones(IntArrayRef size, const TensorOptions& options) {
-  return native::full(size, /*fill_value=*/1, options);
+Tensor ones(
+    IntArrayRef size,
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  return native::full(size, /*fill_value=*/1, options, optional_memory_format);
 }
 
-Tensor& ones_out(Tensor& result, IntArrayRef size) {
-  return native::full_out(result, size, /*fill_value=*/1);
+Tensor& ones_out(
+    Tensor& result,
+    IntArrayRef size,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  return native::full_out(
+      result, size, /*fill_value=*/1, optional_memory_format);
 }
 
 Tensor ones_like(
@@ -756,17 +771,26 @@ Tensor triu_indices_cpu(
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ zeros ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Tensor zeros(IntArrayRef size, const TensorOptions& options) {
-  auto result = at::empty(size, options);
+Tensor zeros(
+    IntArrayRef size,
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  auto result = at::empty(size, options, optional_memory_format);
   return result.zero_();
 }
 
-Tensor& zeros_out(Tensor& result, IntArrayRef size) {
+Tensor& zeros_out(
+    Tensor& result,
+    IntArrayRef size,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
   if (result.is_sparse()) {
+    TORCH_CHECK(
+        !optional_memory_format.has_value(),
+        "memory format option is only supported by strided tensors");
     result.sparse_resize_and_clear_(size, size.size(), 0);
     return result;
   } else {
-    result.resize_(size);
+    result.resize_(size, optional_memory_format);
   }
   return result.zero_();
 }
@@ -982,23 +1006,28 @@ Tensor full(
     IntArrayRef size,
     Scalar fill_value,
     optional<DimnameList> names,
-    const TensorOptions& options) {
-  auto result = at::empty(size, names, options);
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  auto result = at::empty(size, names, options, optional_memory_format);
   return result.fill_(fill_value);
 }
 
 Tensor ones(
     IntArrayRef size,
     optional<DimnameList> names,
-    const TensorOptions& options) {
-  return native::full(size, /*fill_value=*/1, names, options);
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  return native::full(
+      size, /*fill_value=*/1, names, options, optional_memory_format);
 }
 
 Tensor zeros(
     IntArrayRef size,
     optional<DimnameList> names,
-    const TensorOptions& options) {
-  return native::full(size, /*fill_value=*/0, names, options);
+    const TensorOptions& options,
+    c10::optional<c10::MemoryFormat> optional_memory_format) {
+  return native::full(
+      size, /*fill_value=*/0, names, options, optional_memory_format);
 }
 
 Tensor randn(
