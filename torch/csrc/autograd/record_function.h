@@ -3,6 +3,7 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/SmallVector.h>
 #include <torch/csrc/WindowsTorchApiMacro.h>
+#include <torch/custom_class.h>
 
 #include <functional>
 
@@ -82,7 +83,7 @@ struct TORCH_API StringView {
 // Soft limit on the number of callbacks to use;
 constexpr std::size_t kSoftLimitCallbacks = 32;
 
-struct TORCH_API RecordFunction {
+struct TORCH_API RecordFunction : torch::CustomClassHolder {
   // Default constructor is used with before function called afterwards:
   //  scope - record scope that this function tracks
   RecordFunction(
