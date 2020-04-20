@@ -33,7 +33,7 @@ Tensor empty_with_tail_padding(
       maybe_names);
 }
 
-Tensor allocate_padded_contiguous_if_needed(
+bool can_avoid_reallocation(
     const Tensor& input,
     const c10::MemoryFormat memory_format) {
   const auto* const allocator = input.storage().allocator();
@@ -41,8 +41,13 @@ Tensor allocate_padded_contiguous_if_needed(
 
   // If the allocators are the same and the memory is contiguous in the requested
   // format, then there is no need to reallocate the tensor.
+  return (allocator == mobile_allocator) && input.is_contiguous(memory_format);
+}
 
-  if ((allocator == mobile_allocator) && input.is_contiguous(memory_format)) {
+Tensor allocate_padded_contiguous_if_needed(
+    const Tensor& input,
+    const c10::MemoryFormat memory_format) {
+  if (can_avoid_reallocation(input, memory_format)) {
     return input;
   }
 

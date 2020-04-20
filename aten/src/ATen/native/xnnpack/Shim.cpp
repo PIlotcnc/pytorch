@@ -28,6 +28,54 @@ bool available() {
     return false;
 }
 
+//
+// Clamp
+//
+
+bool use_clamp(
+    const Tensor&,
+    const float,
+    const float) {
+  return false;
+}
+
+Tensor clamp(
+    const Tensor&,
+    const float,
+    const float) {
+  TORCH_CHECK(false, internal::kError);
+}
+
+bool use_clamp_(
+    Tensor&,
+    const float,
+    const float) {
+  return false;
+}
+
+Tensor& clamp_(
+    Tensor&,
+    const float,
+    const float) {
+  TORCH_CHECK(false, internal::kError);
+}
+
+bool use_clamp_out(
+    Tensor&,
+    const Tensor&,
+    const float,
+    const float) {
+  return false;
+}
+
+Tensor& clamp_out(
+    Tensor&,
+    const Tensor&,
+    const float,
+    const float) {
+  TORCH_CHECK(false, internal::kError);
+}
+
 bool use_convolution2d(
     const Tensor&,
     const Tensor&,
@@ -89,7 +137,6 @@ Tensor max_pool2d(
 }
 
 } // namespace xnnpack
-
 } // namespace native
 } // namespace at
 
