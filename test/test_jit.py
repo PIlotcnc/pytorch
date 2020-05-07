@@ -6677,7 +6677,7 @@ a")
         inputs = [torch.ones(10, 10).type(torch.LongTensor)]
         outputs = torch.ones(10, 10)
 
-        self.assertEqual(cu.test_integral_shape_inference(*inputs), outputs)
+        self.assertEqualIgnoreType(cu.test_integral_shape_inference(*inputs), outputs)
 
     @unittest.skipIf(RUN_CUDA, 'This tests the CPU fuser')
     @unittest.skipIf(IS_SANDCASTLE, "NYI: fuser support for Sandcastle")
@@ -8138,7 +8138,7 @@ a")
                     # torchscript returns int tensor, python returns float tensor
                     self.assertNotEqual(t1.dtype, t2.dtype)
 
-                self.assertEqual(t1, t2)
+                self.assertEqualIgnoreType(t1, t2)
                 self.assertEqual(t1.device, t2.device)
 
     @unittest.skipIf(GRAPH_EXECUTOR != ProfilingMode.LEGACY, "Simple Executor doesn't have any shapes to propagate")
@@ -16842,7 +16842,7 @@ a")
             # TODO: re-enable module hook when Python printing of attributes is
             # supported
             m = M({char : torch.ones(1) + ord(char) - ord("a") for char in "abcdefg"})
-            self.assertEqual(m("c"), torch.tensor([103]))
+            self.assertEqualIgnoreType(m("c"), torch.tensor([103]))
 
     def test_module_none_attrs(self):
         class MyMod(torch.jit.ScriptModule):
