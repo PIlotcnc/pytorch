@@ -2161,7 +2161,7 @@ class TestNN(NNTestCase):
         # the calculation should be this:
         expected_mask = torch.tensor([[0, 0, 1, 0], [1, 1, 0, 1]])
         computed_mask = container.compute_mask(t, default_mask)
-        self.assertEqual(expected_mask, computed_mask)
+        self.assertEqualIgnoreType(expected_mask, computed_mask)
 
         # 2) test structured pruning
         q = prune.LnStructured(amount=1, n=2, dim=0)
@@ -2171,7 +2171,7 @@ class TestNN(NNTestCase):
         # outcome of the calculation should be this:
         expected_mask = torch.tensor([[0, 0, 0, 0], [1, 1, 0, 1]])
         computed_mask = container.compute_mask(t, default_mask)
-        self.assertEqual(expected_mask, computed_mask)
+        self.assertEqualIgnoreType(expected_mask, computed_mask)
 
         # 2) test structured pruning, along another axis
         r = prune.LnStructured(amount=1, n=2, dim=1)
@@ -2181,7 +2181,7 @@ class TestNN(NNTestCase):
         # outcome of the calculation should be this:
         expected_mask = torch.tensor([[0, 1, 1, 0], [0, 1, 0, 1]])
         computed_mask = container.compute_mask(t, default_mask)
-        self.assertEqual(expected_mask, computed_mask)
+        self.assertEqualIgnoreType(expected_mask, computed_mask)
 
 
     def test_l1_unstructured_pruning(self):
@@ -2199,12 +2199,12 @@ class TestNN(NNTestCase):
 
         prune.l1_unstructured(m, 'weight', amount=2)
         expected_weight = torch.tensor([[0, 2, 3, 4], [-4, -3, -2, 0]])
-        self.assertEqual(expected_weight, m.weight)
+        self.assertEqualIgnoreType(expected_weight, m.weight)
 
         # check that pruning again removes the next two smallest entries
         prune.l1_unstructured(m, 'weight', amount=2)
         expected_weight = torch.tensor([[0, 0, 3, 4], [-4, -3, 0, 0]])
-        self.assertEqual(expected_weight, m.weight)
+        self.assertEqualIgnoreType(expected_weight, m.weight)
 
     def test_unstructured_pruning_same_magnitude(self):
         r"""Since it may happen that the tensor to prune has entries with the
@@ -2337,7 +2337,7 @@ class TestNN(NNTestCase):
         )
 
         expected_mweight = torch.tensor([[0, 2, 3, 4], [-4, -3, -2, 0]])
-        self.assertEqual(expected_mweight, m.weight)
+        self.assertEqualIgnoreType(expected_mweight, m.weight)
 
         expected_nweight = torch.tensor([[0, 0, -2]]).to(dtype=n.weight.dtype)
         self.assertEqual(expected_nweight, n.weight)
@@ -2363,7 +2363,7 @@ class TestNN(NNTestCase):
             dtype=t.dtype
         )
 
-        self.assertEqual(computed_mask, expected_mask)
+        self.assertEqualIgnoreType(computed_mask, expected_mask)
 
     def test_pruning_rollback(self):
         r"""Test that if something fails when the we try to compute the mask,
@@ -3605,7 +3605,7 @@ class TestNN(NNTestCase):
         self.assertNotIn('Incompatible', str(incompatible_keys))
         self.assertNotIn('Incompatible', repr(incompatible_keys))
         self.assertEqual(net.linear1.weight.data, state_dict['linear1.weight'])
-        self.assertEqual(net.block.conv1.bias.data, state_dict['block.conv1.bias'])
+        self.assertEqualIgnoreType(net.block.conv1.bias.data, state_dict['block.conv1.bias'])
         self.assertEqual(net.bn.running_mean, state_dict['bn.running_mean'])
 
         state_dict = net.state_dict()
@@ -3656,7 +3656,7 @@ class TestNN(NNTestCase):
         }
         net.load_state_dict(state_dict, strict=False)
         self.assertEqual(net.linear1.weight.data, state_dict['linear1.weight'])
-        self.assertEqual(net.block.conv1.bias.data, state_dict['block.conv1.bias'])
+        self.assertEqualIgnoreType(net.block.conv1.bias.data, state_dict['block.conv1.bias'])
         self.assertEqual(net.bn.running_mean, state_dict['bn.running_mean'])
         new_state_dict = net.state_dict()
         del old_state_dict['linear1.weight']
@@ -7482,7 +7482,8 @@ class TestNN(NNTestCase):
               [6.10547, 6.43750, 6.98438, 7.31641]]]])
         out_t = F.interpolate(in_t, scale_factor=2, mode='bicubic', align_corners=False)
         torch.set_printoptions(precision=5)
-        self.assertEqual(out_t, expected_out_t, atol=1e-5)
+        self.assertEqualIgnoreType(out_t, expected_out_t, atol=1e-5)
+
 
         device_list = ['cpu']
         if TEST_CUDA:
@@ -7528,7 +7529,7 @@ class TestNN(NNTestCase):
                   [5.92212, 6.16094, 6.62870, 7.04680]]]])
         out_t = F.interpolate(in_t, scale_factor=2.3, mode='bicubic', align_corners=False, recompute_scale_factor=False)
         torch.set_printoptions(precision=5)
-        self.assertEqual(out_t, expected_out_t, atol=1e-5)
+        self.assertEqualIgnoreType(out_t, expected_out_t, atol=1e-5)
 
         device_list = ['cpu']
         if TEST_CUDA:
@@ -8069,7 +8070,7 @@ class TestNN(NNTestCase):
         outf = F.log_softmax(inputf, dim=-1)
         out = F.log_softmax(input, dim=-1)
         self.assertEqual(out.dtype, dtype)
-        self.assertEqual(out, outf, atol=0.1)
+        self.assertEqualIgnoreType(out, outf, atol=0.1)
 
         out.sum().backward()
         outf.sum().backward()
@@ -8178,12 +8179,12 @@ class TestNN(NNTestCase):
         outf = loss_cpu(inputf, target)
         out = loss_cpu(input, target)
         self.assertEqual(out.dtype, dtype)
-        self.assertEqual(out, outf, atol=1e-1)
+        self.assertEqualIgnoreType(out, outf, atol=1e-1)
 
         outf.backward()
         out.backward()
         self.assertEqual(input.grad.dtype, dtype)
-        self.assertEqual(input.grad, inputf.grad, atol=1e-1)
+        self.assertEqualIgnoreType(input.grad, inputf.grad, atol=1e-1)
 
     @unittest.skipIf(not torch.cuda.is_available(), "CUDA not available")
     def test_convert_sync_batchnorm(self):
@@ -9111,7 +9112,7 @@ class TestNNDeviceType(NNTestCase):
         delta = IN.running_var.sqrt() * torch.arange(c, device=device, dtype=dtype)
         delta = delta.view(-1, *[1 for _ in range(2, input.dim())])
         output = IN(input_var + delta)
-        self.assertEqual(output.transpose(0, 1).reshape(c, -1).mean(1), torch.arange(c))
+        self.assertEqualIgnoreType(output.transpose(0, 1).reshape(c, -1).mean(1), torch.arange(c))
 
     def _test_InstanceNorm_cuda_half(self, cls, input, device):
         # THNN
@@ -9437,7 +9438,7 @@ class TestNNDeviceType(NNTestCase):
 
         t = torch.nn.functional.one_hot(torch.empty([4, 0], dtype=torch.long, device=device), 100)
         expected = torch.empty([4, 0, 100])
-        self.assertEqual(t, expected)
+        self.assertEqualIgnoreType(t, expected)
 
         with self.assertRaises(RuntimeError):
             torch.nn.functional.one_hot(torch.empty([4, 0], dtype=torch.long, device=device))
@@ -9624,13 +9625,13 @@ class TestNNDeviceType(NNTestCase):
         embedding.zero_grad()
         embedding(tensor[0]).sum().backward()
         self.assertEqual(embedding.weight.grad._indices(), tensor)
-        self.assertEqual(embedding.weight.grad._values(), ones)
+        self.assertEqualIgnoreType(embedding.weight.grad._values(), ones)
 
         embedding.zero_grad()
         embedding(tensor[0]).sum().backward()
         embedding(tensor[0]).sum().backward()
         self.assertEqual(embedding.weight.grad._indices(), tensorTwice)
-        self.assertEqual(embedding.weight.grad._values(), onesTwice)
+        self.assertEqualIgnoreType(embedding.weight.grad._values(), onesTwice)
 
         embedding.zero_grad()
         embedding(tensor[0]).sum().backward()
@@ -9638,7 +9639,7 @@ class TestNNDeviceType(NNTestCase):
         embedding(tensor[0]).sum().backward()
         tensorTwice[0, 3] = 8
         self.assertEqual(embedding.weight.grad._indices(), tensorTwice)
-        self.assertEqual(embedding.weight.grad._values(), onesTwice)
+        self.assertEqualIgnoreType(embedding.weight.grad._values(), onesTwice)
 
     @dtypesIfCUDA(*ALL_TENSORTYPES2)
     @dtypes(torch.float32)
@@ -10759,8 +10760,8 @@ class TestNNDeviceType(NNTestCase):
             expected_indices = expected_indices(num_dim)
             expected_output = expected_output(num_dim)
             self.assertEqual(indices.dim(), input.dim())
-            self.assertEqual(indices.data.squeeze(), expected_indices)
-            self.assertEqual(output.data.squeeze(), expected_output)
+            self.assertEqualIgnoreType(indices.data.squeeze(), expected_indices)
+            self.assertEqualIgnoreType(output.data.squeeze(), expected_output)
         self.assertTrue(output.requires_grad)
         self.assertFalse(indices.requires_grad)
 
@@ -10768,7 +10769,7 @@ class TestNNDeviceType(NNTestCase):
         grad_output = torch.ones(output.size(), device=device, dtype=dtype)
         output.backward(grad_output, retain_graph=True)
         expected_grad = expected_grad(num_dim)
-        self.assertEqual(input_var.grad.data, expected_grad.view_as(input))
+        self.assertEqualIgnoreType(input_var.grad.data, expected_grad.view_as(input))
 
         # Make sure backward after changing indices will result in an error
         indices.add_(1)
@@ -11202,7 +11203,7 @@ class TestNNDeviceType(NNTestCase):
         target = torch.randint(num_channels, target_size, device=device)
 
         output = F.nll_loss(input, target, reduction=reduction)
-        self.assertEqual(output, expected)
+        self.assertEqualIgnoreType(output, expected)
 
         output.sum().backward()
         self.assertEqual(input.grad.size(), input.size())
