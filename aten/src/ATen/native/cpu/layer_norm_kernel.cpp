@@ -1,18 +1,67 @@
 #include <ATen/native/layer_norm.h>
 
+#include <algorithm>
 #include <cmath>
+#include <tuple>
+#include <utility>
 
 #include <ATen/ATen.h>
 #include <ATen/CPUApplyUtils.h>
 #include <ATen/Dispatch.h>
+#include <ATen/Parallel.h>
 #include <ATen/cpu/vec256/functional.h>
 #include <ATen/cpu/vec256/vec256.h>
-#include <ATen/Parallel.h>
 
 namespace at {
 namespace native {
 
 namespace {
+
+template <typename T>
+void AddMoments(int64_t m0_add, T m1_add, T m2_add, int64_t* m0, T* m1, T* m2) {
+  const int64_t n = *m0 + m0_add;
+  const T c1 = n == 0 ? 0 : static_cast<T>(*m0) / static_cast<T>(n);
+  const T c2 = n == 0 ? 0 : T(1) - c1;
+  const T delta = m1_add - *m1;
+  *m0 = n;
+  *m1 = c1 * (*m1) + c2 * m1_add;
+  *m2 += m2_add + delta * delta * c1 * c2 * static_cast<T>(n);
+}
+
+template <typename T>
+std::pair<T, T> WelfordMoments(int64_t N, const T* X) {
+  using Vec = vec256::Vec256<T>;
+  constexpr int64_t K = Vec::size();
+  const int64_t n = N / K;
+
+  Vec m1_vec(0);
+  Vec m2_vec(0);
+  for (int64_t i = 0; i < n; ++i) {
+    const Vec x_vec = Vec::loadu(X + i * K);
+    const Vec delta_vec = x_vec - m1_vec;
+    const Vec c_vec = Vec(T(1) / static_cast<T>(i + 1));
+    m1_vec = m1_vec + delta_vec * c_vec;
+    m2_vec = m2_vec + delta_vec * (x_vec - m1_vec);
+  }
+  std::array<T, K> m1_arr;
+  std::array<T, K> m2_arr;
+  m1_vec.store(m1_arr.data());
+  m2_vec.store(m2_arr.data());
+
+  int64_t m0 = 0;
+  T m1 = 0;
+  T m2 = 0;
+  for (int64_t i = 0; i < K; ++i) {
+    AddMoments(n, m1_arr[i], m2_arr[i], &m0, &m1, &m2);
+  }
+  for (int64_t i = n * K; i < N; ++i) {
+    const T delta = X[i] - m1;
+    m1 += delta / static_cast<T>(i + 1);
+    m2 += delta * (X[i] - m1);
+  }
+
+  return std::make_pair(m1, m2 / static_cast<T>(N));
+}
 
 template <typename T>
 void LayerNormKernelImplInternal(
@@ -25,52 +74,62 @@ void LayerNormKernelImplInternal(
     Tensor* Y,
     Tensor* mean,
     Tensor* rstd) {
+  TORCH_CHECK(X.numel() == M * N);
+  TORCH_CHECK(!gamma.defined() || gamma.numel() == N);
+  TORCH_CHECK(!beta.defined() || beta.numel() == N);
+
   using Vec = vec256::Vec256<T>;
-  DCHECK_EQ(X.numel(), M * N);
-  DCHECK(!gamma.defined() || gamma.numel() == N);
-  DCHECK(!beta.defined() || beta.numel() == N);
-  T* X_data = X.data_ptr<T>();
+  const T* X_data = X.data_ptr<T>();
   const T* gamma_data = gamma.defined() ? gamma.data_ptr<T>() : nullptr;
   const T* beta_data = beta.defined() ? beta.data_ptr<T>() : nullptr;
   T* Y_data = Y->data_ptr<T>();
   T* mean_data = mean->data_ptr<T>();
   T* rstd_data = rstd->data_ptr<T>();
-  const T c = T(1) / static_cast<T>(N);
-  const bool gamma_null = gamma_data == nullptr;
-  const bool beta_null = beta_data == nullptr;
   at::parallel_for(0, M, 1, [&](int64_t start, int64_t end) {
     for (int64_t i = start; i < end; ++i) {
-      T* X_ptr = X_data + i * N;
+      const T* X_ptr = X_data + i * N;
       T* Y_ptr = Y_data + i * N;
-      T mean_val = vec256::reduce_all<T>(
-          [](Vec& x, Vec& y) { return x + y; },
-          X_ptr,
-          N);
-      T rstd_val = vec256::map_reduce_all<T>(
-          [](Vec x) { return x * x; },
-          [](Vec x, Vec y) { return x + y; },
-          X_ptr,
-          N);
-      mean_val *= c;
-      rstd_val = std::max(rstd_val * c - mean_val * mean_val, T(0));
-      rstd_val = T(1) / std::sqrt(rstd_val + eps);
-      const T scale = rstd_val;
-      const T bias = -rstd_val * mean_val;
-      if (gamma_null || beta_null) {
-        for (int64_t j = 0; j < N; ++j) {
-          const T gamma_v = gamma_null ? T(1) : gamma_data[j];
-          const T beta_v = beta_null ? T(0) : beta_data[j];
-          Y_ptr[j] = (X_ptr[j] * scale + bias) * gamma_v + beta_v;
-        }
-      } else {
+      T mean_val;
+      T rstd_val;
+      std::tie(mean_val, rstd_val) = WelfordMoments(N, X_ptr);
+      rstd_val = T(1) / std::sqrt(std::max(rstd_val, T(0)) + eps);
+      const T c1 = rstd_val;
+      const T c2 = -rstd_val * mean_val;
+      const Vec c1_vec(c1);
+      const Vec c2_vec(c2);
+      if (gamma_data != nullptr && beta_data != nullptr) {
         vec256::map3<T>(
-            [scale, bias](Vec x, Vec gamma, Vec beta) {
-              return (x * Vec(scale) + Vec(bias)) * gamma + beta;
+            [c1_vec, c2_vec](Vec x_vec, Vec gamma_vec, Vec beta_vec) {
+              return (x_vec * c1_vec + c2_vec) * gamma_vec + beta_vec;
             },
             Y_ptr,
             X_ptr,
             gamma_data,
             beta_data,
+            N);
+      } else if (gamma_data != nullptr) {
+        vec256::map2<T>(
+            [c1_vec, c2_vec](Vec x_vec, Vec gamma_vec) {
+              return (x_vec * c1_vec + c2_vec) * gamma_vec;
+            },
+            Y_ptr,
+            X_ptr,
+            gamma_data,
+            N);
+      } else if (beta_data != nullptr) {
+        vec256::map2<T>(
+            [c1_vec, c2_vec](Vec x_vec, Vec beta_vec) {
+              return (x_vec * c1_vec + c2_vec) + beta_vec;
+            },
+            Y_ptr,
+            X_ptr,
+            beta_data,
+            N);
+      } else {
+        vec256::map<T>(
+            [c1_vec, c2_vec](Vec x_vec) { return x_vec * c1_vec + c2_vec; },
+            Y_ptr,
+            X_ptr,
             N);
       }
       mean_data[i] = mean_val;
@@ -107,17 +166,19 @@ void LayerNormBackwardKernelImplInternal(
     Tensor* dX,
     Tensor* dgamma,
     Tensor* dbeta) {
+  TORCH_CHECK(dY.numel() == M * N);
+  TORCH_CHECK(X.numel() == M * N);
+  TORCH_CHECK(mean.numel() == M);
+  TORCH_CHECK(rstd.numel() == M);
+  TORCH_CHECK(!gamma.defined() || gamma.numel() == N);
+
   using Vec = vec256::Vec256<T>;
-  DCHECK_EQ(dY.numel(), M * N);
-  DCHECK_EQ(X.numel(), M * N);
-  DCHECK_EQ(mean.numel(), M);
-  DCHECK_EQ(rstd.numel(), M);
-  DCHECK(!gamma.defined() || gamma.numel() == N);
   const T* dY_data = dY.template data_ptr<T>();
   const T* X_data = X.template data_ptr<T>();
   const T* mean_data = mean.template data_ptr<T>();
   const T* rstd_data = rstd.template data_ptr<T>();
-  const T* gamma_data = gamma.defined() ? gamma.template data_ptr<T>() : nullptr;
+  const T* gamma_data =
+      gamma.defined() ? gamma.template data_ptr<T>() : nullptr;
   T* dX_data = dX->defined() ? dX->template data_ptr<T>() : nullptr;
   T* dgamma_data = dgamma->defined() ? dgamma->template data_ptr<T>() : nullptr;
   T* dbeta_data = dbeta->defined() ? dbeta->template data_ptr<T>() : nullptr;
@@ -133,7 +194,8 @@ void LayerNormBackwardKernelImplInternal(
   //    Parallel along dim0 and reduce dY and X along dim0 to buffer.
   //    Second path: parallel along dim1 and reduce buffer to dgamma and dbeta.
   //
-  // 2. Fuse first path of dgamma/dbeta with dX to reuse X[i] and dY[i] in L1 cache.
+  // 2. Fuse first path of dgamma/dbeta with dX to reuse X[i] and dY[i] in L1
+  // cache.
   //
   int num_threads = at::get_num_threads();
   Tensor buffer = at::empty({0}, X.options());
@@ -147,10 +209,15 @@ void LayerNormBackwardKernelImplInternal(
   // First path of dgamma/dbeta and dX
   at::parallel_for(0, M, 1, [&](int64_t start, int64_t end) {
     int tid = at::get_thread_num();
-    TORCH_CHECK(tid < num_threads,
-                "expect thread id smaller than ", num_threads, ", got thread id ", tid);
+    TORCH_CHECK(
+        tid < num_threads,
+        "expect thread id smaller than ",
+        num_threads,
+        ", got thread id ",
+        tid);
     T* dgamma_buffer_ptr = dgamma_null ? nullptr : buffer_data + tid * N;
-    T* dbeta_buffer_ptr = dbeta_null ? nullptr : buffer_data + num_threads * N + tid * N;
+    T* dbeta_buffer_ptr =
+        dbeta_null ? nullptr : buffer_data + num_threads * N + tid * N;
     for (int64_t i = start; i < end; ++i) {
       const T* dY_ptr = dY_data + i * N;
       const T* X_ptr = X_data + i * N;
@@ -162,7 +229,9 @@ void LayerNormBackwardKernelImplInternal(
         //   dgamma_data[j] += dY_ptr[j] * (a * X_ptr[j] + b);
         // }
         vec256::map3<T>(
-            [a, b](Vec dgamma, Vec dy, Vec x) { return dgamma + dy * (Vec(a) * x + Vec(b)); },
+            [a, b](Vec dgamma, Vec dy, Vec x) {
+              return dgamma + dy * (Vec(a) * x + Vec(b));
+            },
             dgamma_buffer_ptr,
             dgamma_buffer_ptr,
             dY_ptr,
@@ -199,9 +268,7 @@ void LayerNormBackwardKernelImplInternal(
               X_ptr,
               N);
           db = vec256::reduce_all<T>(
-              [](Vec& x, Vec& y) { return x + y; },
-              dY_ptr,
-              N);
+              [](Vec& x, Vec& y) { return x + y; }, dY_ptr, N);
         } else {
           ds = vec256::map3_reduce_all<T>(
               [](Vec x, Vec y, Vec z) { return x * y * z; },
@@ -220,6 +287,9 @@ void LayerNormBackwardKernelImplInternal(
         const T a = rstd_data[i];
         const T b = (db * mean_data[i] - ds) * a * a * a * scale;
         const T c = -b * mean_data[i] - db * a * scale;
+        const Vec a_vec(a);
+        const Vec b_vec(b);
+        const Vec c_vec(c);
         // Scalar math:
         // for (int64_t j = 0; j < N; ++j) {
         //   const T gamma_v = gamma_null ? T(1) : gamma_data[j];
@@ -227,14 +297,18 @@ void LayerNormBackwardKernelImplInternal(
         // }
         if (gamma_null) {
           vec256::map2<T>(
-              [a, b, c](Vec dy, Vec x) { return Vec(a) * dy + Vec(b) * x + Vec(c); },
+              [a_vec, b_vec, c_vec](Vec dy, Vec x) {
+                return a_vec * dy + b_vec * x + c_vec;
+              },
               dX_ptr,
               dY_ptr,
               X_ptr,
               N);
         } else {
           vec256::map3<T>(
-              [a, b, c](Vec dy, Vec gamma, Vec x) { return Vec(a) * dy * gamma + Vec(b) * x + Vec(c); },
+              [a_vec, b_vec, c_vec](Vec dy, Vec gamma, Vec x) {
+                return a_vec * dy * gamma + b_vec * x + c_vec;
+              },
               dX_ptr,
               dY_ptr,
               gamma_data,
