@@ -242,6 +242,11 @@ cmake_dependent_option(
 cmake_dependent_option(
     USE_GLOO "Use Gloo. Only available if USE_DISTRIBUTED is on." ON
     "USE_DISTRIBUTED" OFF)
+# If USE_GLOO then try to build Gloo with OpenSSL(currently available only on Linux).
+# set USE_GLOO_WITH_OPENSSL=OFF if you don't have OpenSSL or don't want to use it in Gloo
+cmake_dependent_option(
+    USE_GLOO_WITH_OPENSSL "Use Gloo with OpenSSL. Only available if USE_GLOO is on." ON
+    "USE_GLOO" OFF)
 cmake_dependent_option(
     USE_TENSORPIPE "Use TensorPipe. Only available if USE_DISTRIBUTED is on." ON
     "USE_DISTRIBUTED" OFF)
@@ -272,6 +277,15 @@ if(WIN32)
     else()
       set(ENV{libuv_ROOT} ${libuv_tmp_LIBRARY}/../../)
     endif()
+  endif()
+endif()
+
+if(USE_GLOO_WITH_OPENSSL AND LINUX)
+  find_package(OpenSSL)
+  if(OPENSSL_FOUND)
+    set(USE_TCP_OPENSSL ON CACHE STRING "")
+  else()
+    message(WARNING "USE_GLOO_WITH_OPENSSL is set, but OpenSSL not found")
   endif()
 endif()
 
