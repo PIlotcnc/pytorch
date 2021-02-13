@@ -141,7 +141,7 @@ inline Tensor as_view(const Tensor & base, const Tensor & tensor, bool is_bw_dif
     // Fast codepath for backward only code
     // It is useful as it avoids the creation of the temporary c10<optional> which makes
     // a significant difference when measuring instruction count for a single "t.view(-1)" call from c++.
-    if (is_bw_differentiable) {
+    if (is_bw_differentiable && base.unsafeGetTensorImpl()->track_view()) {
       if (base.is_view()) {
         auto diff_view_meta = static_cast<DifferentiableViewMeta*>(torch::autograd::impl::get_autograd_meta(base));
         const auto& base_bw_info = diff_view_meta->get_backward_view();
@@ -155,9 +155,14 @@ inline Tensor as_view(const Tensor & base, const Tensor & tensor, bool is_bw_dif
     } else {
       TORCH_CHECK(creation_meta == CreationMeta::DEFAULT,
                   "Non-backward differentiable views must have creation_meta=CreationMeta::DEFAULT");
-      return make_variable_non_differentiable_view(base, std::move(tensor), allow_tensor_metadata_change);
+      auto result = make_variable_non_differentiable_view(base, std::move(tensor), allow_tensor_metadata_change);
+      if (!base.unsafeGetTensorImpl()->track_view()) {
+        result.unsafeGetTensorImpl()->setup_track_view(false);
+      }
+      return result;
     }
   }
+  // TODO: make the following case inherit track_view from base. 
   // Create both the forward and backward info that are needed
   c10::optional<ViewInfo> new_bw_info;
   c10::optional<ViewInfo> new_fw_info;
