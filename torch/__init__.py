@@ -472,6 +472,24 @@ def is_warn_always_enabled():
     """
     return _C._get_warnAlways()
 
+
+def factory_kwargs(kwargs):
+    simple_keys = {"device", "dtype", "memory_format"}
+    expected_keys = simple_keys | {"factory_kwargs"}
+    if not kwargs.keys() <= expected_keys:
+        raise TypeError(f"unexpected kwargs {kwargs.keys() - expected_keys}")
+
+    # guarantee no input kwargs is untouched
+    r = dict(kwargs.get("factory_kwargs", {}))
+    for k in simple_keys:
+        if k in r:
+            raise TypeError(f"{k} specified twice, in **kwargs and in factory_kwargs")
+        if k in kwargs:
+            r[k] = kwargs[k]
+
+    return r
+
+
 ################################################################################
 # Define Storage and Tensor classes
 ################################################################################

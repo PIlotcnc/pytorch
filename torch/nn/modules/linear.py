@@ -3,6 +3,7 @@ import math
 import torch
 from torch import Tensor
 from torch.nn.parameter import Parameter, UninitializedParameter
+from torch.types import Device
 from .. import functional as F
 from .. import init
 from .module import Module
@@ -72,16 +73,19 @@ class Linear(Module):
     out_features: int
     weight: Tensor
 
-    def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
+    def __init__(self, in_features: int, out_features: int, bias: bool = True,
+                 *, reset_parameters: bool = True, **kwargs) -> None:
+        factory_kwargs = torch.factory_kwargs(kwargs)
         super(Linear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = Parameter(torch.Tensor(out_features, in_features))
+        self.weight = Parameter(torch.empty((out_features, in_features), **factory_kwargs))
         if bias:
-            self.bias = Parameter(torch.Tensor(out_features))
+            self.bias = Parameter(torch.empty(out_features, **factory_kwargs))
         else:
             self.register_parameter('bias', None)
-        self.reset_parameters()
+        if reset_parameters:
+            self.reset_parameters()
 
     def reset_parameters(self) -> None:
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
