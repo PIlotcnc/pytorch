@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 #include <ATen/native/vulkan/api/Common.h>
 #include <ATen/native/vulkan/api/Adapter.h>
@@ -180,4 +180,4 @@ inline void Context::dispatch(
 } // namespace native
 } // namespace at
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */

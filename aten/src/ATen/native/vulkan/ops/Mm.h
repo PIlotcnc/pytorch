@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 #include <ATen/native/vulkan/ops/Common.h>
 #include <torch/library.h>
@@ -53,4 +53,4 @@ Tensor linear_run(
 } // namespace native
 } // namespace at
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */

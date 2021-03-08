@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 #include <ATen/native/vulkan/api/Common.h>
 
@@ -93,4 +93,4 @@ inline void Cache<Factory>::purge() {
 } // namespace native
 } // namespace at
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */

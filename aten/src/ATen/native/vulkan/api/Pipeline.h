@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 #include <ATen/native/vulkan/api/Common.h>
 #include <ATen/native/vulkan/api/Cache.h>
@@ -247,4 +247,4 @@ inline Pipeline::Object Pipeline::Cache::retrieve(
 } // namespace native
 } // namespace at
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */

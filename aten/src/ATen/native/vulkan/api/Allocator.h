@@ -5,7 +5,7 @@
 // Always include this file (Allocator.h) instead.
 //
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 #include <ATen/native/vulkan/api/Common.h>
 
@@ -49,4 +49,4 @@
   #pragma clang diagnostic pop
 #endif /* __clang__ */
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */

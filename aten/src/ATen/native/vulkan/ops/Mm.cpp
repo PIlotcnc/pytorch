@@ -214,14 +214,14 @@ Tensor mm(
           1.0f);
 }
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("addmm", TORCH_FN(addmm));
   m.impl("mm", TORCH_FN(mm));
 }
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */
 
 } // namespace
 
@@ -318,7 +318,7 @@ Tensor LinearOpContext::run(
                 VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             },
-            VK_KERNEL(addmm),
+            VK_KERNEL(mm_add),
             {
               div_up(unpacked_.weight.sizes()[Layout::Parameter::width], INT64_C(2)),
               div_up(v_input.sizes()[Layout::Parameter::height], INT64_C(2)),

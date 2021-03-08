@@ -1,5 +1,3 @@
-#ifdef USE_VULKAN_API
-
 #include <ATen/native/vulkan/ops/Common.h>
 #include <ATen/native/vulkan/ops/Convolution.h>
 #include <ATen/native/vulkan/ops/Mm.h>
@@ -11,6 +9,8 @@ namespace native {
 namespace vulkan {
 namespace ops {
 namespace {
+
+#ifdef USE_VULKAN
 
 TORCH_LIBRARY(vulkan, m) {
   m.class_<Conv2dOpContext>("Conv2dOpContext")
@@ -71,10 +71,10 @@ TORCH_LIBRARY_IMPL(vulkan_prepack, Vulkan, m) {
   m.impl("linear_run", TORCH_FN(linear_run));
 }
 
+#endif /* USE_VULKAN */
+
 } // namespace
 } // namespace ops
 } // namespace vulkan
 } // namespace native
 } // namespace at
-
-#endif /* USE_VULKAN_API */

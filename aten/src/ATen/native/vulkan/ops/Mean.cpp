@@ -1,5 +1,4 @@
 #include <ATen/native/vulkan/ops/Common.h>
-#include <ATen/native/vulkan/ops/Utils.h>
 #include <torch/library.h>
 
 namespace at {
@@ -23,7 +22,7 @@ Tensor mean(
   std::unordered_set<int64_t> dims_set;
 
   for (const auto& d : dim) {
-    dims_set.insert(utils::normalize(d, 4));
+    dims_set.insert(normalize(d, 4));
   }
 
   TORCH_CHECK(
@@ -102,13 +101,13 @@ Tensor mean(
   return convert(v_output);
 }
 
-#ifdef USE_VULKAN_API
+#ifdef USE_VULKAN
 
 TORCH_LIBRARY_IMPL(aten, Vulkan, m) {
   m.impl("mean.dim", TORCH_FN(mean));
 }
 
-#endif /* USE_VULKAN_API */
+#endif /* USE_VULKAN */
 
 } // namespace
 } // namespace ops
