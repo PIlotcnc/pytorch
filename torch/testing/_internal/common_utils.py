@@ -690,6 +690,30 @@ def is_iterable(obj):
     except TypeError:
         return False
 
+
+def is_iterable_of_tensors(iterable):
+    """ Returns True if iterable is an iterable of tensors
+        (excludes empty iterables) and False o.w. """
+
+    # Tensor itself is iterable so we check this first
+    if isinstance(iterable, torch.Tensor):
+        return False
+
+    try:
+        # We cannot deduce that his is an iterable of tensors if the
+        # list is empty. Maybe we should look into using type annotations
+        if len(iterable) == 0:
+            return False
+
+        for t in iter(iterable):
+            if not isinstance(t, torch.Tensor):
+                return False
+    except TypeError as te:
+        return False
+
+    return True
+
+
 class CudaNonDefaultStream():
     def __enter__(self):
         # Before starting CUDA test save currently active streams on all

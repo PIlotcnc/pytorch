@@ -6,7 +6,7 @@ import torch
 from torch.testing import \
     (FileCheck, floating_and_complex_types_and)
 from torch.testing._internal.common_utils import \
-    (TestCase, run_tests, IS_SANDCASTLE, clone_input_helper, make_tensor)
+    (TestCase, run_tests, IS_SANDCASTLE, clone_input_helper, make_tensor, is_iterable_of_tensors)
 from torch.testing._internal.common_methods_invocations import \
     (op_db, method_tests)
 from torch.testing._internal.common_device_type import \
@@ -100,19 +100,18 @@ class TestGradients(TestCase):
                 variant_out_fn = variant
 
             def fn(*inputs):
-                output = variant_out_fn(*inputs, **sample.kwargs)
-                return op.output_func(output)
+                return op.grad_func(variant_out_fn, *sample.pack_inputs(inputs), **sample.kwargs)
 
             if check == 'gradcheck':
-                self.assertTrue(gradcheck(fn, (*sample.input,) + sample.args,
+                self.assertTrue(gradcheck(fn, sample.unpack_inputs(),
                                           check_batched_grad=op.check_batched_grad,
                                           check_grad_dtypes=True))
             elif check == 'gradgradcheck':
-                self.assertTrue(gradgradcheck(fn, (*sample.input,) + sample.args,
+                self.assertTrue(gradgradcheck(fn, sample.unpack_inputs(),
                                               gen_non_contig_grad_outputs=False,
                                               check_batched_grad=op.check_batched_gradgrad,
                                               check_grad_dtypes=True))
-                self.assertTrue(gradgradcheck(fn, (*sample.input,) + sample.args,
+                self.assertTrue(gradgradcheck(fn, sample.unpack_inputs(),
                                               gen_non_contig_grad_outputs=True,
                                               check_batched_grad=op.check_batched_gradgrad,
                                               check_grad_dtypes=True))
@@ -304,14 +303,12 @@ class TestCommon(JitCommonTestCase):
                 #   DifferentiableGraph nodes if they are present
                 with disable_autodiff_subgraph_inlining():
 
-
                     # Check scripted forward, grad, and grad grad
                     script_fn = create_script_fn(self, name, func_type)
-
                     check_against_reference(self,
                                             script_fn,
                                             func,
-                                            op.output_func,
+                                            lambda x: x,
                                             (*sample.input,) + sample.args,
                                             sample.kwargs,
                                             no_grad=not test_backward)
@@ -321,7 +318,7 @@ class TestCommon(JitCommonTestCase):
                     check_against_reference(self,
                                             traced_fn,
                                             func,
-                                            op.output_func,
+                                            lambda x: x,
                                             (*sample.input,) + sample.args,
                                             sample.kwargs,
                                             no_grad=not test_backward)
@@ -470,19 +467,7 @@ class TestCommon(JitCommonTestCase):
         # Short-circuits if output is not a single tensor or an
         #   iterable of tensors
 
-        # Returns True if iterable is an iterable of tensors (includes empty iterables)
-        #   and False o.w.
-        def _is_iterable_of_tensors(iterable):
-            try:
-                for t in iter(iterable):
-                    if not isinstance(t, torch.Tensor):
-                        return False
-            except TypeError as te:
-                return False
-
-            return True
-
-        if not isinstance(expected, torch.Tensor) and not _is_iterable_of_tensors(expected):
+        if not isinstance(expected, torch.Tensor) and not is_iterable_of_tensors(expected):
             self.skipTest("Skipped! Only supports single tensor or iterable of tensor outputs.")
 
         # A wrapper around map that works with single tensors and always
