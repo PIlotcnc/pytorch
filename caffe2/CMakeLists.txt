@@ -627,6 +627,12 @@ if(NOT INTERN_BUILD_MOBILE OR NOT BUILD_CAFFE2_MOBILE)
       ${TORCH_ROOT}/aten/src/ATen/cuda/detail/LazyNVRTC.cpp
       PROPERTIES COMPILE_DEFINITIONS "NVRTC_SHORTHASH=${CUDA_NVRTC_SHORTHASH}"
     )
+    if(USE_CUDNN)
+      set_source_files_properties(
+        ${TORCH_SRC_DIR}/csrc/jit/passes/frozen_conv_add_relu_fusion.cpp
+        PROPERTIES COMPILE_DEFINITIONS "USE_CUDNN"
+      )
+    endif()
   endif()
 
   if(USE_MLCOMPUTE)
