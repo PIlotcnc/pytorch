@@ -14,6 +14,7 @@
 
 namespace c10d {
 
+// Background thread that runs exclusively on the master process
 class TCPStoreDaemon {
  public:
   explicit TCPStoreDaemon(int storeListenSocket);
@@ -36,6 +37,7 @@ class TCPStoreDaemon {
   void getNumKeysHandler(int socket) const;
   void deleteHandler(int socket);
   void waitHandler(int socket);
+  void watchHandler(int socket);
 
   bool checkKeys(const std::vector<std::string>& keys) const;
   void wakeupWaitingClients(const std::string& key);
@@ -49,7 +51,8 @@ class TCPStoreDaemon {
   std::unordered_map<std::string, std::vector<int>> waitingSockets_;
   // From socket -> number of keys awaited
   std::unordered_map<int, size_t> keysAwaited_;
-
+  // From key -> the list of sockets waiting on it
+  std::unordered_map<std::string, std::vector<int>> watchedSockets_;
   std::vector<int> sockets_;
   int storeListenSocket_;
 #ifdef _WIN32
@@ -59,6 +62,25 @@ class TCPStoreDaemon {
 #else
   std::vector<int> controlPipeFd_{-1, -1};
 #endif
+};
+
+// Listener thread runs on all processes
+// Right now only handles callbacks registered from watchKey()
+class ListenThread {
+  public:
+    explicit ListenThread(int listenSocket);
+    ~ListenThread();
+    // Adds a callback to run key change
+    void addCallback(std::string key, std::function<void(std::string, std::string)> cb);
+
+  protected:
+    void run();
+    std::thread listenerThread_;
+    // Socket from which to receive data from TCPStoreDaemon
+    int storeListenSocket_;
+    // List of callbacks map each watched key
+    std::unordered_map<std::string, std::function<void(std::string, std::string)>> keyToCallbacks_;
+    std::vector<int> controlPipeFd_{-1, -1};
 };
 
 class TCPStore : public Store {
@@ -85,6 +107,8 @@ class TCPStore : public Store {
   int64_t add(const std::string& key, int64_t value) override;
 
   bool deleteKey(const std::string& key) override;
+
+  void watchKey(const std::string& key, std::function<void(std::string, std::string)> callback);
 
   bool check(const std::vector<std::string>& keys) override;
 
@@ -114,7 +138,9 @@ class TCPStore : public Store {
 
   bool isServer_;
   int storeSocket_ = -1;
+  int listenSocket_ = -1;
   int masterListenSocket_ = -1;
+  std::thread listenThread_;
 
   std::string tcpStoreAddr_;
   PortType tcpStorePort_;
@@ -125,6 +151,9 @@ class TCPStore : public Store {
 
   // Only needs to be launched as the server
   std::unique_ptr<TCPStoreDaemon> tcpStoreDaemon_ = nullptr;
+
+  // Launched from all clients
+  std::unique_ptr<ListenThread> watchListener_ = nullptr;
 };
 
 } // namespace c10d
