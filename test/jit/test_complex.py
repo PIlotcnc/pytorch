@@ -109,3 +109,30 @@ class TestComplex(JitTestCase):
 
         for val in complex_vals:
             self.checkScript(fn, (val, ))
+
+    def test_cmath_constants(self):
+        def checkCmathConst(const_name):
+            funcs_template = dedent('''
+                def func():
+                    return cmath.{const}
+                ''')
+
+            funcs_str = funcs_template.format(const=const_name)
+            scope = {}
+            execWrapper(funcs_str, globals(), scope)
+            cu = torch.jit.CompilationUnit(funcs_str)
+            f_script = cu.func
+            f = scope['func']
+
+            res_python = f()
+            res_script = f_script()
+
+            if res_python != res_script:
+                msg = ("Failed on {const_name}. Python: {res_python}, Script: {res_script}"
+                       .format(const_name=const_name, res_python=res_python, res_script=res_script))
+                self.assertEqual(res_python, res_script, msg=msg)
+
+        float_consts = ['pi', 'e', 'tau', 'inf', 'nan']
+        complex_consts = ['infj', 'nanj']
+        for x in (float_consts + complex_consts):
+            checkCmathConst(x)
