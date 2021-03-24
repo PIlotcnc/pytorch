@@ -71,13 +71,18 @@ class TestComplex(JitTestCase):
             ''')
 
             funcs_str = funcs_template.format(func=func_name)
+            if func_name in ['isinf', 'isnan', 'isfinite']:
+                new_vals = vals + ([float('inf'), float('nan'), -1 * float('inf')])
+                final_vals = tuple(complex(x, y) for x, y in product(new_vals, new_vals))
+            else:
+                final_vals = complex_vals
             scope = {}
             execWrapper(funcs_str, globals(), scope)
             cu = torch.jit.CompilationUnit(funcs_str)
             f_script = cu.func
             f = scope['func']
 
-            for a in complex_vals:
+            for a in final_vals:
                 res_python = None
                 res_script = None
                 try:
@@ -98,7 +103,7 @@ class TestComplex(JitTestCase):
                     self.assertEqual(res_python, res_script, msg=msg)
 
         unary_ops = ['log', 'log10', 'sqrt', 'exp', 'sin', 'cos', 'asin', 'acos', 'atan', 'sinh', 'cosh',
-                     'tanh', 'asinh', 'acosh', 'atanh', 'phase']
+                     'tanh', 'asinh', 'acosh', 'atanh', 'phase', 'isinf', 'isnan', 'isfinite']
 
         # --- Unary ops ---
         for op in unary_ops:
