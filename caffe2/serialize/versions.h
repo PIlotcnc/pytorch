@@ -74,9 +74,18 @@ static_assert(kProducedBytecodeVersion >= kProducedFileFormatVersion,
 
 // Introduce kMinSupportedBytecodeVersion for limited backward compatibility
 // support of bytecode. If
-// kMinSupportedBytecodeVersion <= model_version <= kProducedBytecodeVersion (in loader),
+// kMinSupportedBytecodeVersion <= model_version <= kMaxSupportedBytecodeVersion (in loader),
 // we should support this model_version. For example, we provide a wrapper to
 // handle an updated operator.
+// kMaxSupportedBytecodeVersion is introduced to better support forward compatibility.
+// Most of the time, kMaxSupportedBytecodeVersion should be the same as kProducedBytecodeVersion.
+// When a new model format needs to roll out, for example, update the model format from v4 to v5,
+// the process is:
+// 1. update the code to let it read model v4 and v5, bump kMaxSupportedBytecodeVersion from 4 to 5
+// 2. wait until the new code is rolling to all client device
+// 3. update the code to let it generate the new model format v5 from now on, bump kProducedBytecodeVersion
+// from 4 to 5
 constexpr uint64_t kMinSupportedBytecodeVersion = 0x3L;
+constexpr uint64_t kMaxSupportedBytecodeVersion = 0x4L;
 } // namespace serialize
 } // namespace caffe2
