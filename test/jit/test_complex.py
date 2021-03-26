@@ -155,7 +155,6 @@ class TestComplex(JitTestCase):
         for x in (float_consts + complex_consts):
             checkCmath(x, funcs_template=func_constants_template)
 
-
     def test_infj_nanj_pickle(self):
         class ComplexModule(torch.jit.ScriptModule):
             def __init__(self):
@@ -192,3 +191,14 @@ class TestComplex(JitTestCase):
 
         x, y = 2 - 3j, 4j
         self.checkScript(fn1, (x, y))
+
+    def test_tensor_attributes(self):
+        def tensor_real(x):
+            return x.real
+
+        def tensor_imag(x):
+            return x.imag
+
+        t = torch.randn(2, 3, dtype=torch.cdouble)
+        self.checkScript(tensor_real, (t, ))
+        self.checkScript(tensor_imag, (t, ))
