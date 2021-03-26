@@ -79,7 +79,13 @@ class TestComplex(JitTestCase):
             f_script = cu.func
             f = scope['func']
 
-            for a in complex_vals:
+            if func_name in ['isinf', 'isnan', 'isfinite']:
+                new_vals = vals + ([float('inf'), float('nan'), -1 * float('inf')])
+                final_vals = tuple(complex(x, y) for x, y in product(new_vals, new_vals))
+            else:
+                final_vals = complex_vals
+
+            for a in final_vals:
                 res_python = None
                 res_script = None
                 try:
@@ -94,13 +100,12 @@ class TestComplex(JitTestCase):
                 if res_python != res_script:
                     if isinstance(res_python, Exception):
                         continue
-
                     msg = ("Failed on {func_name} with input {a}. Python: {res_python}, Script: {res_script}"
                            .format(func_name=func_name, a=a, res_python=res_python, res_script=res_script))
                     self.assertEqual(res_python, res_script, msg=msg)
 
         unary_ops = ['log', 'log10', 'sqrt', 'exp', 'sin', 'cos', 'asin', 'acos', 'atan', 'sinh', 'cosh',
-                     'tanh', 'asinh', 'acosh', 'atanh', 'phase']
+                     'tanh', 'asinh', 'acosh', 'atanh', 'phase', 'isinf', 'isnan', 'isfinite']
 
         # --- Unary ops ---
         for op in unary_ops:
@@ -111,6 +116,35 @@ class TestComplex(JitTestCase):
 
         for val in complex_vals:
             self.checkScript(fn, (val, ))
+
+        def pow_complex_float(x: complex, y: float):
+            return pow(x, y)
+
+        def pow_float_complex(x: float, y: complex):
+            return pow(x, y)
+
+        for x, y in zip(vals, complex_vals):
+            # Reference: https://github.com/pytorch/pytorch/issues/54622
+            if (x == 0):
+                continue
+            self.checkScript(pow_float_complex, (x, y))
+            self.checkScript(pow_complex_float, (y, x))
+
+        def pow_complex_complex(x: complex, y: complex):
+            return pow(x, y)
+
+        for x, y in zip(complex_vals, complex_vals):
+            # Reference: https://github.com/pytorch/pytorch/issues/54622
+            if (x == 0):
+                continue
+            self.checkScript(pow_complex_complex, (x, y))
+
+        # --- Binary op ---
+        def rect_fn(x: float, y: float):
+            return cmath.rect(x, y)
+
+        for x, y in product(vals, vals):
+            self.checkScript(rect_fn, (x, y, ))
 
         func_constants_template = dedent('''
             def func():
@@ -138,3 +172,23 @@ class TestComplex(JitTestCase):
         loaded = self.getExportImportCopy(ComplexModule())
         self.assertEqual(loaded(2, 3), 2 + cmath.infj)
         self.assertEqual(loaded(3, 4), 4 + cmath.nanj)
+
+    def test_comparison_ops(self):
+        def fn1(a: complex, b: complex):
+            return a == b
+
+        def fn2(a: complex, b: complex):
+            return a != b
+
+        x, y = 2 - 3j, 4j
+        self.checkScript(fn1, (x, x))
+        self.checkScript(fn1, (x, y))
+        self.checkScript(fn2, (x, x))
+        self.checkScript(fn1, (x, y))
+
+    def test_div(self):
+        def fn1(a: complex, b: complex):
+            return a / b
+
+        x, y = 2 - 3j, 4j
+        self.checkScript(fn1, (x, y))
