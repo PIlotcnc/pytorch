@@ -110,7 +110,7 @@ std::string getModuleTypeName(const Module& module, const std::string& prefix) {
 std::pair<IValue, c10::optional<IValue>> getFunctionTuple(
     const Module& module,
     const Function& func,
-    bool save_mobile_debug_info) {
+    bool save_mobile_debug_info = false) {
   auto graph = func.graph()->copy();
 
   Inline(*graph);
@@ -393,12 +393,28 @@ class ScriptModuleSerializer {
     // Then we serialize all code info.
     writeCode(module.type());
     // The tensor constants from the code are written to a separate archive
-    // so loading the code does not depend on loading the data
+    // (constant archive) so loading the code does not depend on loading the
+    // data
     std::vector<IValue> ivalue_constants(
         constant_table_.begin(), constant_table_.end());
+    TensorIndexMap constants_from_jit;
+
+    // Use constants_from_jit to store the mapping (tensor) -> (archive_name,
+    // index), such that when later writing bytecode archive, if the tensor is
+    // the same as one from jit, it will just update bytecode.pkl and won't
+    // write the tensor in bytecode folder.
+    for (size_t i = 0; i < ivalue_constants.size(); i++) {
+      if (ivalue_constants[i].isTensor() &&
+          constants_from_jit.find(ivalue_constants[i].toTensor()) ==
+              constants_from_jit.end()) {
+        constants_from_jit[ivalue_constants[i].toTensor()] =
+            std::make_pair("constants", i);
+      }
+    }
+
     writeArchive("constants", c10::ivalue::Tuple::create(ivalue_constants));
     if (bytecode_format) {
-      writeByteCode(module, save_mobile_debug_info);
+      writeByteCode(module, save_mobile_debug_info, constants_from_jit);
       writeMobileMetadata(module, extra_files);
     }
 
@@ -422,6 +438,11 @@ class ScriptModuleSerializer {
           return type_name_uniquer_.getUniqueName(t);
         },
         &memoizedClassTypes);
+    bool supportTensorsArchiveTable = false;
+    if (!tensors_archive_table_.empty()) {
+      data_pickle.updateTensorsArchiveTable(tensors_archive_table_);
+      supportTensorsArchiveTable = true;
+    }
     data_pickle.protocol();
     data_pickle.pushIValue(value);
     data_pickle.stop();
@@ -430,11 +451,20 @@ class ScriptModuleSerializer {
     for (const auto& td : data_pickle.tensorData()) {
       WriteableTensorData writable_td = getWriteableTensorData(td);
       std::string fname = prefix + c10::to_string(i++);
-      writer_.writeRecord(fname, writable_td.data(), writable_td.sizeInBytes());
+      if (supportTensorsArchiveTable) {
+        const auto found = tensors_archive_table_.find(td);
+        if (found == tensors_archive_table_.end()) {
+          writer_.writeRecord(
+              fname, writable_td.data(), writable_td.sizeInBytes());
+        }
+      } else {
+        writer_.writeRecord(
+            fname, writable_td.data(), writable_td.sizeInBytes());
+      }
     }
+
     std::string fname = archive_name + ".pkl";
     writer_.writeRecord(fname, data.data(), data.size());
-
     // serialize all the captured run-time class types
     for (const c10::ClassTypePtr& wroteType : memoizedClassTypes) {
       convertNamedType(wroteType);
@@ -526,7 +556,10 @@ class ScriptModuleSerializer {
     }
   }
 
-  void writeByteCode(const Module& module, bool save_mobile_debug_info) {
+  void writeByteCode(
+      const Module& module,
+      bool save_mobile_debug_info,
+      const TensorIndexMap& constants_from_jit) {
     std::vector<c10::IValue> elements;
     elements.emplace_back(
         static_cast<int64_t>(caffe2::serialize::kProducedBytecodeVersion));
@@ -540,6 +573,10 @@ class ScriptModuleSerializer {
     moduleMethodsTuple(
         module, elements, debug_info_elements, save_mobile_debug_info);
     auto telements = Tup(std::move(elements));
+
+    // tensors_archive_table_ will be passed to the bytcode's pickler later.
+    tensors_archive_table_.insert(
+        constants_from_jit.begin(), constants_from_jit.end());
     writeArchive("bytecode", telements);
     if (save_mobile_debug_info) {
       auto debug_info_telements = Tup(std::move(debug_info_elements.value()));
@@ -578,6 +615,7 @@ class ScriptModuleSerializer {
 
   caffe2::serialize::PyTorchStreamWriter writer_;
   std::vector<at::IValue> constant_table_;
+  TensorIndexMap tensors_archive_table_;
   std::unordered_set<c10::NamedTypePtr> converted_types_;
   PrintDepsTable class_deps_;
   TypeNameUniquer type_name_uniquer_;
@@ -628,6 +666,7 @@ namespace {
 void export_opnames(const script::Module& m, std::set<std::string>& opnames) {
   std::vector<c10::IValue> elements;
   c10::optional<std::vector<c10::IValue>> debug_info_elements;
+
   moduleMethodsTuple(
       m, elements, debug_info_elements, false /* save_mobile_debug_info */);
   for (const auto& element : elements) {
