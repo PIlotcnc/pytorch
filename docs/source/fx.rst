@@ -109,25 +109,25 @@ Here we define a module ``MyModule`` for demonstration purposes, instantiate it,
 symbolically trace it, then call the :meth:`Graph.print_tabular` method to print
 out a table showing the nodes of this :class:`Graph`:
 
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | opcode        | name          | target                     | args               | kwargs      |
-    +===============+===============+============================+====================+=============+
-    | placeholder   | x             | x                          | ()                 | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | get_attr      | linear_weight | linear.weight              | ()                 | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | call_function | add_1         | <built-in function add>    | (x, linear_weight) | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | call_module   | linear_1      | linear                     | (add_1,)           | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | call_method   | relu_1        | relu                       | (linear_1,)        | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | call_function | sum_1         | <built-in method sum ...>  | (relu_1,)          | {'dim': -1} |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | call_function | topk_1        | <built-in method topk ...> | (sum_1, 3)         | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
-    | output        | output        | output                     | (topk_1,)          | {}          |
-    +---------------+---------------+----------------------------+--------------------+-------------+
+    +---------------+----------------------------+--------------------+-------------+
+    | opcode        | target                     | args               | kwargs      |
+    +===============+============================+====================+=============+
+    | placeholder   | x                          | ()                 | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | get_attr      | linear.weight              | ()                 | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | call_function | <built-in function add>    | (x, linear_weight) | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | call_module   | linear                     | (add_1,)           | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | call_method   | relu                       | (linear_1,)        | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | call_function | <built-in method sum ...>  | (relu_1,)          | {'dim': -1} |
+    +---------------+----------------------------+--------------------+-------------+
+    | call_function | <built-in method topk ...> | (sum_1, 3)         | {}          |
+    +---------------+----------------------------+--------------------+-------------+
+    | output        | output                     | (topk_1,)          | {}          |
+    +---------------+----------------------------+--------------------+-------------+
 
 We can use this information to answer the questions we posed above.
 
@@ -619,11 +619,12 @@ examine our traced module:
     traced.graph.print_tabular()
     # This gives us:
     """
-    opcode         name    target                   args      kwargs
-    -------------  ------  -----------------------  --------  --------
-    placeholder    x       x                        ()        {}
-    placeholder    y       y                        ()        {}
-    call_function  add_1   <built-in function add>  (x, y)    {}
+    opcode         target                   args    kwargs
+    -------------  -----------------------  ------  --------
+    placeholder    x                        ()      {}
+    placeholder    y                        ()      {}
+    call_function  <built-in function add>  (x, y)  {}
+    output         output                   (add,)  {}
     """
 
 Using the utility functions above, we can compare our traced Module
