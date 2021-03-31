@@ -258,6 +258,23 @@ void OwnerRRef::setError(std::exception_ptr eptr) {
   future_->setErrorIfNeeded(std::move(eptr));
 }
 
+// #ifdef USE_CUDA_NOT_ROCM
+void OwnerRRef::recordAllDevices(const std::set<c10::DeviceIndex>& deviceIndices) {
+  cudaEvents_.clear();
+  for (auto deviceIndex : deviceIndices) {
+    at::cuda::CUDAEvent cudaEvent;
+    cudaEvent.record(at::cuda::getCurrentCUDAStream(deviceIndex));
+    cudaEvents_.push_back(std::move(cudaEvent));
+  }
+}
+
+void OwnerRRef::waitAllDevices() {
+  for (at::cuda::CUDAEvent& cudaEvent : cudaEvents_) {
+    cudaEvent.block(at::cuda::getCurrentCUDAStream(cudaEvent.device_index()));
+  }
+}
+// #endif
+
 std::ostream& operator<<(std::ostream& os, const RRef& rref) {
   if (rref.isOwner()) {
     return os << "OwnerRRef("
