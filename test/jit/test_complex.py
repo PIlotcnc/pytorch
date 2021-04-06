@@ -2,6 +2,7 @@ import torch
 import os
 import sys
 from torch.testing._internal.jit_utils import JitTestCase, execWrapper
+from torch.testing._internal.common_utils import IS_MACOS
 from typing import List, Dict
 from itertools import product
 from textwrap import dedent
@@ -79,7 +80,13 @@ class TestComplex(JitTestCase):
             f_script = cu.func
             f = scope['func']
 
-            for a in complex_vals:
+            if func_name in ['isinf', 'isnan', 'isfinite']:
+                new_vals = vals + ([float('inf'), float('nan'), -1 * float('inf')])
+                final_vals = tuple(complex(x, y) for x, y in product(new_vals, new_vals))
+            else:
+                final_vals = complex_vals
+
+            for a in final_vals:
                 res_python = None
                 res_script = None
                 try:
@@ -99,7 +106,7 @@ class TestComplex(JitTestCase):
                     self.assertEqual(res_python, res_script, msg=msg)
 
         unary_ops = ['log', 'log10', 'sqrt', 'exp', 'sin', 'cos', 'asin', 'acos', 'atan', 'sinh', 'cosh',
-                     'tanh', 'asinh', 'acosh', 'atanh', 'phase']
+                     'tanh', 'asinh', 'acosh', 'atanh', 'phase', 'isinf', 'isnan', 'isfinite']
 
         # --- Unary ops ---
         for op in unary_ops:
@@ -111,6 +118,35 @@ class TestComplex(JitTestCase):
         for val in complex_vals:
             self.checkScript(fn, (val, ))
 
+        def pow_complex_float(x: complex, y: float):
+            return pow(x, y)
+
+        def pow_float_complex(x: float, y: complex):
+            return pow(x, y)
+
+        for x, y in zip(vals, complex_vals):
+            # Reference: https://github.com/pytorch/pytorch/issues/54622
+            if (x == 0):
+                continue
+            self.checkScript(pow_float_complex, (x, y))
+            self.checkScript(pow_complex_float, (y, x))
+
+        def pow_complex_complex(x: complex, y: complex):
+            return pow(x, y)
+
+        for x, y in zip(complex_vals, complex_vals):
+            # Reference: https://github.com/pytorch/pytorch/issues/54622
+            if (x == 0):
+                continue
+            self.checkScript(pow_complex_complex, (x, y))
+
+        if not IS_MACOS:
+            # --- Binary op ---
+            def rect_fn(x: float, y: float):
+                return cmath.rect(x, y)
+            for x, y in product(vals, vals):
+                self.checkScript(rect_fn, (x, y, ))
+
         func_constants_template = dedent('''
             def func():
                 return cmath.{func_or_const}
@@ -119,7 +155,6 @@ class TestComplex(JitTestCase):
         complex_consts = ['infj', 'nanj']
         for x in (float_consts + complex_consts):
             checkCmath(x, funcs_template=func_constants_template)
-
 
     def test_infj_nanj_pickle(self):
         class ComplexModule(torch.jit.ScriptModule):
@@ -137,3 +172,23 @@ class TestComplex(JitTestCase):
         loaded = self.getExportImportCopy(ComplexModule())
         self.assertEqual(loaded(2, 3), 2 + cmath.infj)
         self.assertEqual(loaded(3, 4), 4 + cmath.nanj)
+
+    def test_comparison_ops(self):
+        def fn1(a: complex, b: complex):
+            return a == b
+
+        def fn2(a: complex, b: complex):
+            return a != b
+
+        x, y = 2 - 3j, 4j
+        self.checkScript(fn1, (x, x))
+        self.checkScript(fn1, (x, y))
+        self.checkScript(fn2, (x, x))
+        self.checkScript(fn1, (x, y))
+
+    def test_div(self):
+        def fn1(a: complex, b: complex):
+            return a / b
+
+        x, y = 2 - 3j, 4j
+        self.checkScript(fn1, (x, y))
