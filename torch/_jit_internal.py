@@ -967,19 +967,22 @@ def _try_get_dispatched_fn(fn):
 
 def _get_named_tuple_properties(obj):
     assert issubclass(obj, tuple) and hasattr(obj, '_fields')
-    fields = list(obj._fields)
+    defaults = [obj._field_defaults.get(field) 
+                if hasattr(obj, "_field_defaults") 
+                else None 
+                for field in obj._fields]
     annotations = []
     has_annotations = hasattr(obj, '__annotations__')
-    for field in fields:
+    for field in obj._fields:
         if has_annotations and field in obj.__annotations__:
             the_type = torch.jit.annotations.ann_to_type(obj.__annotations__[field], fake_range())
             annotations.append(the_type)
         else:
             annotations.append(torch._C.TensorType.getInferred())
-    return type(obj).__name__, fields, annotations
+    return type(obj).__name__, obj._fields, annotations, defaults
 
 
-def _create_named_tuple(t, unqual_name: str, field_names: List[str]):
+def _create_named_tuple(t, unqual_name: str, field_names: Dict[str, Any]):
     # mypy: namedtuple() expects a string literal as the first argument
     TupleType = collections.namedtuple(unqual_name, field_names)  # type: ignore
     return TupleType(*t)

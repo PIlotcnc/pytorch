@@ -924,36 +924,39 @@ TypePtr registerNamedTuple(const py::object& obj, const SourceRange& loc) {
   TORCH_INTERNAL_ASSERT(isNamedTupleClass(obj));
   auto qualifiedName = c10::QualifiedName(py::cast<std::string>(
       py::module::import("torch._jit_internal").attr("_qualified_name")(obj)));
-  // Currently don't support default values
-  if (py::hasattr(obj, "_field_defaults")) {
-    auto default_dict = py::cast<std::map<std::string, py::object>>(
-        py::getattr(obj, "_field_defaults"));
-    if (default_dict.size()) {
-      std::string error_msg =
-          "Default values are currently not supported"
-          " on NamedTuple fields in TorchScript. Fields "
-          "with default values: [";
-      bool first = true;
-      for (const auto& kv : default_dict) {
-        if (!first) {
-          error_msg += ", ";
-        }
-        error_msg += kv.first;
-      }
-      error_msg += "]";
-      throw ErrorReport(loc) << error_msg;
-    }
-  }
 
   py::object props = py::module::import("torch._jit_internal")
                          .attr("_get_named_tuple_properties")(obj);
-  std::string unqualName;
-  std::vector<std::string> fields;
-  std::vector<TypePtr> annotations;
-  std::tie(unqualName, fields, annotations) = py::cast<
-      std::tuple<std::string, decltype(fields), decltype(annotations)>>(props);
 
-  auto tt = TupleType::createNamed(qualifiedName, fields, annotations);
+  std::string unqualName;
+  std::vector<std::string> field_names;
+  std::vector<TypePtr> field_annotations;
+  std::vector<py::object> field_defaults;
+
+  std::vector<std::pair<std::string, IValue>> fields;
+
+  std::tie(unqualName, field_names, field_annotations, field_defaults) = 
+      py::cast<std::tuple<std::string, 
+               std::vector<std::string>, 
+               std::vector<TypePtr>, 
+               std::vector<py::object>>>(props);
+
+  // In `_get_named_tuple_properties`, we add a dummy value to represent
+  // a missing default parameter, This provides a guarantee that the
+  // two vectors will be the same size, even if the NamedTuple doesn't
+  // have default values for all its fields
+  TORCH_INTERNAL_ASSERT(field_names.size() == field_defaults.size());
+
+  for (auto i = 0; i < field_names.size(); ++i) {
+    auto ival = IValue();
+    if (!field_defaults[i].is_none()) {
+      auto type = tryToInferType(field_defaults[i]);
+      ival = toIValue(field_defaults[i], type.type());
+    }
+    fields.emplace_back(std::pair<std::string, IValue>(field_names[i], ival));
+  }
+
+  auto tt = TupleType::createNamed(qualifiedName, fields, field_annotations);
   if (auto type = get_python_cu()->get_type(qualifiedName)) {
     TORCH_CHECK(
         type->isSubtypeOf(tt),
