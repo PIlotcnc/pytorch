@@ -17,7 +17,7 @@ from torch.testing import \
     (make_non_contiguous, _dispatch_dtypes, floating_types, floating_types_and,
      floating_and_complex_types, floating_and_complex_types_and,
      all_types_and_complex_and, all_types_and, all_types_and_complex,
-     integral_types_and)
+     integral_types_and, all_types)
 from torch.testing._internal.common_device_type import \
     (skipIf, skipMeta, skipCUDAIfNoMagma, skipCUDAIfNoMagmaAndNoCusolver, skipCUDAIfNoCusolver,
      skipCPUIfNoLapack, skipCPUIfNoMkl,
@@ -2097,6 +2097,15 @@ def sample_inputs_rsub(op_info, device, dtype, requires_grad, variant='tensor', 
 
     return samples
 
+def sample_inputs_cross(op_info, device, dtype, requires_grad, **kwargs):
+    sample0 = SampleInput(make_tensor((S, 3), device=device, dtype=dtype, requires_grad=requires_grad),
+                          args=(make_tensor((S, 3), device=device, dtype=dtype, requires_grad=requires_grad),))
+    sample1 = SampleInput(make_tensor((S, 3, S), device=device, dtype=dtype, requires_grad=requires_grad),
+                          args=(make_tensor((S, 3, S), device=device, dtype=dtype, requires_grad=requires_grad),),
+                          kwargs={'dim': 1})
+
+    return (sample0, sample1)
+
 
 def sample_inputs_cumulative_ops(op_info, device, dtype, requires_grad, supports_dtype_kwargs=True, **kwargs):
     def _make_tensor_helper(shape, low=None, high=None):
@@ -2702,6 +2711,17 @@ op_db: List[OpInfo] = [
                        SkipInfo('TestUnaryUfuncs', 'test_reference_numerics_hard', device_type='cpu',
                                 dtypes=[torch.cfloat, torch.cdouble], active_if=IS_MACOS),
                    )),
+    OpInfo('cross',
+           dtypesIfCPU=all_types_and_complex(),
+           dtypesIfCUDA=all_types_and(torch.half),
+           sample_inputs_func=sample_inputs_cross,
+           supports_complex_autograd=False,
+           skips=(
+               # AssertionError: UserWarning not triggered :
+               # Resized a non-empty tensor but did not warn about it.
+               SkipInfo('TestCommon', 'test_out'),
+           )
+    ),
     OpInfo('cumsum',
            dtypesIfCPU=all_types_and_complex_and(torch.bool),
            dtypesIfCUDA=all_types_and_complex_and(torch.bool, torch.half),
@@ -4544,8 +4564,6 @@ def method_tests():
         ('triu', (S, M, M), NO_ARGS, 'batched'),
         ('triu', (S, M, M), (2,), 'batched_idx'),
         ('triu', (3, 3, S, S), NO_ARGS, 'more_batched'),
-        ('cross', (S, 3), ((S, 3),)),
-        ('cross', (S, 3, S), ((S, 3, S), 1), 'dim'),
         ('index_fill', (S, S), (0, index_variable(2, S), 2), 'dim', (), [0]),
         ('index_fill', (S, S), (0, index_variable(2, S), ()), 'variable_dim', (), [0]),
         ('index_fill', (S, S), (0, torch.tensor(0, dtype=torch.int64), 2), 'scalar_index_dim', (), [0]),
