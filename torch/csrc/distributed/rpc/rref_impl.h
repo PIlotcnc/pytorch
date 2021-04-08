@@ -7,6 +7,10 @@
 #include <torch/csrc/distributed/rpc/rpc_agent.h>
 #include <torch/csrc/distributed/rpc/types.h>
 
+#ifdef USE_CUDA_NOT_ROCM
+#include <ATen/cuda/CUDAEvent.h>
+#endif
+
 #include <atomic>
 
 namespace torch {
@@ -395,6 +399,28 @@ class TORCH_API OwnerRRef final : public RRef {
   friend class RRefContext;
 
   std::shared_ptr<JitFuture> future_;
+
+ public:
+  // Records an event per each stream in the context and stores them in
+  // the current OwnerRRef instance if CUDA is available,
+  // otherwise does nothing.
+  void recordAllStreams(std::shared_ptr<LazyStreamContext> ctx);
+
+  // Blocks all streams in the context on all events previously stored in
+  // the current OwnerRRef instance if CUDA is available,
+  // otherwise does nothing.
+  void blockAllStreams(std::shared_ptr<LazyStreamContext> ctx);
+ private:
+
+ #ifdef USE_CUDA_NOT_ROCM
+  // a storage for CUDA events for synchronization.
+  std::vector<at::cuda::CUDAEvent> cudaEvents_;
+#else
+  // if CUDA is not available we still need a dummy field
+  // to prevent segfaults because of different class size
+  std::vector<int> cudaEvents_;
+#endif
+
 };
 
 TORCH_API std::ostream& operator<<(std::ostream& os, const RRef& rref);
