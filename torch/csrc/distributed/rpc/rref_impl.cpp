@@ -2,6 +2,7 @@
 #include <fmt/format.h>
 #include <torch/csrc/distributed/autograd/rpc_messages/rpc_with_autograd.h>
 #include <torch/csrc/distributed/autograd/utils.h>
+#include <torch/csrc/distributed/rpc/macros.h>
 #include <torch/csrc/distributed/rpc/profiler/remote_profiler_manager.h>
 #include <torch/csrc/distributed/rpc/rref_context.h>
 #include <torch/csrc/distributed/rpc/rref_impl.h>
@@ -256,6 +257,29 @@ void OwnerRRef::setValue(IValue&& value) {
 
 void OwnerRRef::setError(std::exception_ptr eptr) {
   future_->setErrorIfNeeded(std::move(eptr));
+}
+
+void OwnerRRef::recordAllStreams(
+    const std::shared_ptr<LazyStreamContext>& ctx) {
+#ifdef USE_CUDA_NOT_ROCM
+  if (ctx) {
+    for (auto stream : ctx->getReservedStreams()) {
+      at::cuda::CUDAEvent cudaEvent;
+      cudaEvent.record(stream);
+      cudaEvents_.push_back(std::move(cudaEvent));
+    }
+  }
+#endif
+}
+
+void OwnerRRef::blockAllStreams(std::shared_ptr<LazyStreamContext>& ctx) {
+#ifdef USE_CUDA_NOT_ROCM
+  if (ctx) {
+    for (at::cuda::CUDAEvent& cudaEvent : cudaEvents_) {
+      cudaEvent.block(ctx->getStream(cudaEvent.device_index()));
+    }
+  }
+#endif
 }
 
 std::ostream& operator<<(std::ostream& os, const RRef& rref) {

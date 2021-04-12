@@ -10,6 +10,7 @@
 #include <tensorpipe/tensorpipe.h>
 
 #include <torch/csrc/distributed/rpc/agent_utils.h>
+#include <torch/csrc/distributed/rpc/macros.h>
 #include <torch/csrc/distributed/rpc/tensorpipe_utils.h>
 #include <torch/csrc/distributed/rpc/utils.h>
 
@@ -798,7 +799,10 @@ void TensorPipeAgent::respond(std::shared_ptr<tensorpipe::Pipe>& pipe) {
 
           std::shared_ptr<JitFuture> futureResponseMessage;
           try {
-            futureResponseMessage = cb_->operator()(requestMessage);
+            // The `ctx` needs to be propagated to `process***Call` methods
+            // to synchronize CUDA streams there to make sure that we fetch
+            // the correct value from `to_here()` call.
+            futureResponseMessage = cb_->operator()(requestMessage, ctx);
           } catch (const std::exception& /* unused */) {
             futureResponseMessage =
                 std::make_shared<JitFuture>(at::AnyClassType::get());
