@@ -57,6 +57,15 @@ Tensor toNonOptPrimal(const c10::optional<Tensor>& t) {
   return (t.has_value() && t->defined()) ? t->_fw_primal(/*level */ 0) : Tensor();
 }
 
+bool any_variable_defined(variable_list& variables) {
+  for (auto variable : variables) {
+    if (variable.defined()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void copy_range(variable_list& out, IndexRange range, const Tensor & t) {
   AT_ASSERT(range.second <= out.size());
   AT_ASSERTM(range.second - range.first == 1, "inconsistent range for Tensor output");
@@ -3137,13 +3146,163 @@ Tensor _cudnn_ctc_loss_backward(const Tensor& grad_out, const Tensor& loss, cons
   }
 }
 
-bool any_variable_defined(variable_list& variables) {
-  for (auto variable : variables) {
-    if (variable.defined()) {
-      return true;
+Tensor native_batch_norm_forward(const Tensor& input_t, const Tensor& input, const c10::optional<at::Tensor> weight,
+        const c10::optional<at::Tensor>  running_mean, const c10::optional<at::Tensor>  running_var, const Tensor& result1,
+        const Tensor& result2, bool training, float eps, const Tensor& weight_t, const Tensor& bias_t) {
+  // Used to make the broadcasting work when working with channel-only values
+  auto view_size = input.sizes().vec();
+  for (auto dim = 0; dim < view_size.size(); ++dim) {
+    // Don't change the channel size
+    if (dim != 1) {
+      view_size[dim] = 1;
     }
   }
-  return false;
+
+  Tensor out_t = std::get<0>(native_batch_norm_backward(input_t, input, weight, running_mean, running_var, result1, result2, training, eps, {true, false, false}));
+
+  if (training) {
+    out_t = out_t + weight_t.view(view_size) * (input - result1.view(view_size)) * result2.view(view_size);
+  } else {
+    out_t = out_t + weight_t.view(view_size) * (input - toNonOptTensor(running_mean).view(view_size)) / (toNonOptTensor(running_var).view(view_size) + eps).sqrt();
+  }
+
+  out_t = out_t + bias_t.view(view_size);
+
+  return out_t;
+}
+
+Tensor max_pool2d_with_indices_forward(const Tensor& self_t, const Tensor& indices) {
+  auto out_size = indices.sizes().vec();
+  auto lin_size = out_size;
+  if (out_size.size() == 4) {
+    // batch mode
+    lin_size = {out_size[0], out_size[1], -1};
+  } else {
+    lin_size = {out_size[0], -1};
+  }
+  auto linearized_fw_grad = self_t.view(lin_size);
+  auto linearized_ind = indices.view(lin_size);
+
+  auto res = linearized_fw_grad.gather(-1, linearized_ind);
+
+  return res.view(out_size);
+}
+
+Tensor _log_softmax_foward(const Tensor& self_t, const Tensor& result, int dim) {
+  // dyi/dw = dxi/dw - sum_j (e(yj) * dxj/dw)
+  auto sum = at::sum(self_t * result.exp(), dim, true);
+
+  auto out_t = self_t - sum;
+
+  return out_t;
+}
+
+Tensor stack_forward(TensorList tensors, int64_t dim) {
+  Tensor out_t;
+
+  auto any_defined = false;
+  for (auto& t: tensors) {
+    any_defined |= isFwGradDefined(t);
+  }
+
+  if (any_defined) {
+    std::vector<Tensor> fw_grads;
+
+    for (auto& t: tensors) {
+      fw_grads.push_back(isFwGradDefined(t)? t._fw_grad(/* level */ 0): at::zeros_like(t));
+    }
+
+    out_t = at::stack(fw_grads, dim);
+  }
+
+  return out_t;
+}
+
+Tensor cat_forward(TensorList tensors, int64_t dim) {
+  Tensor out_t;
+
+  auto any_defined = false;
+  for (const auto& t: tensors) {
+    any_defined |= isFwGradDefined(t);
+  }
+
+  if (any_defined) {
+    std::vector<Tensor> fw_grads;
+
+    for (auto& t: tensors) {
+      fw_grads.push_back(isFwGradDefined(t)? t._fw_grad(/* level */ 0): at::zeros_like(t));
+    }
+
+    out_t = at::cat(fw_grads, dim);
+  }
+
+  return out_t;
+}
+
+Tensor max_forward(const Tensor& self_t, const Tensor& self, const Tensor& result) {
+  Tensor out_t;
+  if (self_t.defined()) {
+    auto first_value_idx = (self == result).nonzero().select(0, 0);
+    auto n_dim = first_value_idx.sizes()[0];
+    out_t = self_t;
+    for (auto dim=0; dim < n_dim; ++dim) {
+      out_t = at::select(out_t, 0, first_value_idx[dim].item().to<int64_t>());
+    }
+  }
+  return out_t;
+}
+
+// Utility function used in derivatives.yaml for different loss functions
+at::Tensor apply_loss_reduction(const at::Tensor& unreduced, int64_t reduction) {
+  if (reduction == at::Reduction::Mean) {
+    return unreduced.mean();
+  } else if (reduction == at::Reduction::Sum) {
+    return unreduced.sum();
+  }
+  return unreduced;
+}
+
+
+Tensor binary_cross_entropy_with_logits_forward(const at::Tensor& self_t, const at::Tensor& target_fw_grad,
+        const at::Tensor& self, const at::Tensor& target, const c10::optional<at::Tensor> weight,
+        const c10::optional<at::Tensor> pos_weight, int64_t reduction) {
+  Tensor out_t = at::binary_cross_entropy_with_logits_backward(self_t, self, target, weight, pos_weight, at::Reduction::None);
+
+  out_t = out_t + binary_cross_entropy_with_logits_target_backward(target_fw_grad, self, target, weight, pos_weight, at::Reduction::None);
+
+  out_t = apply_loss_reduction(out_t, reduction);
+
+  return out_t;
+}
+
+Tensor min_max_other_forward(const at::Tensor& self_t, const at::Tensor& other_fw_grad, const at::Tensor& self,
+        const at::Tensor& other, bool is_min) {
+  Tensor use_self_grad;
+  // Follow the same boundary condition as the backward formula
+  if (is_min) {
+    use_self_grad = (self < other).type_as(self);
+  } else {
+    use_self_grad = (self > other).type_as(self);
+  }
+
+  Tensor out_t = self_t * use_self_grad;
+
+  out_t = out_t + (1 - use_self_grad) * other_fw_grad;
+
+  return out_t;
+}
+
+Tensor max_dim_forward(const Tensor& self_t, int64_t dim, const Tensor& indices, bool keepdim) {
+  auto full_indices = indices;
+  if (!keepdim) {
+    full_indices = indices.unsqueeze(dim);
+  }
+  auto out_t = at::gather(self_t, dim, full_indices);
+  if (!keepdim) {
+    out_t = out_t.squeeze(dim);
+  }
+
+  return out_t;
 }
 
 std::tuple<Tensor, Tensor> householder_product_backward(const Tensor& grad, const Tensor& input, const Tensor& tau) {
