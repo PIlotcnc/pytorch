@@ -581,6 +581,20 @@ void testRecv(const std::string& path) {
   EXPECT_TRUE(recvCompleted);
 }
 
+void testSetGet(const std::string& path) {
+  const auto size = 2;
+  auto tests = CollectiveTest::initialize(path, size);
+  constexpr uint64_t tag = 0x1337;
+
+  // test that get() gets the same value as the one that was set()
+  std::vector<uint8_t> testVector = {1, 1, 1, 1};
+  auto store1 = tests[0].getProcessGroup()._getStore();
+  store1->setUint("testKey", testVector);
+  auto store2 = tests[1].getProcessGroup()._getStore();
+  std::vector<uint8_t> value = store2->getUint("testKey");
+  EXPECT_TRUE(value == testVector);
+}
+
 #ifndef _WIN32
 TEST(ProcessGroupGlooTest, testSIGSTOPException) {
   // test SIGSTOP
@@ -658,6 +672,11 @@ TEST(ProcessGroupGlooTest, testRecv) {
     TemporaryFile file;
     testRecv(file.path);
   }
+}
+
+TEST(ProcessGroupGlooTest, testSetGet) {
+  TemporaryFile file;
+  testSetGet(file.path);
 }
 
 TEST(ProcessGroupGlooTest, testWaitDelay) {
