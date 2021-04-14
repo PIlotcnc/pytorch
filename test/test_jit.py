@@ -117,6 +117,8 @@ import unittest
 import warnings
 import zipfile
 
+# TODO(alband) Remove this when this flag is not needed anymore
+torch._C._set_forward_AD_enabled(True)
 
 def canonical(graph):
     return torch._C._jit_pass_canonicalize(graph).str(False)

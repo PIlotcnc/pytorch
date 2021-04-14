@@ -22,6 +22,9 @@ from torch.testing._internal.jit_utils import disable_autodiff_subgraph_inlining
 # Get names of all the operators which have entry in `method_tests` (legacy testing infra)
 method_tested_operators = set(map(lambda test_details: test_details[0], method_tests()))
 
+# TODO(alband) Remove this when this flag is not needed anymore
+torch._C._set_forward_AD_enabled(True)
+
 # Tests that apply to all operators
 
 class TestOpInfo(TestCase):
@@ -137,16 +140,19 @@ class TestGradients(TestCase):
             if check == 'gradcheck':
                 self.assertTrue(gradcheck(fn, gradcheck_args,
                                           check_batched_grad=op.check_batched_grad,
-                                          check_grad_dtypes=True))
+                                          check_grad_dtypes=True,
+                                          check_forward=True))
             elif check == 'gradgradcheck':
                 self.assertTrue(gradgradcheck(fn, gradcheck_args,
                                               gen_non_contig_grad_outputs=False,
                                               check_batched_grad=op.check_batched_gradgrad,
-                                              check_grad_dtypes=True))
+                                              check_grad_dtypes=True,
+                                              check_forward=True))
                 self.assertTrue(gradgradcheck(fn, gradcheck_args,
                                               gen_non_contig_grad_outputs=True,
                                               check_batched_grad=op.check_batched_gradgrad,
-                                              check_grad_dtypes=True))
+                                              check_grad_dtypes=True,
+                                              check_forward=True))
             else:
                 self.assertTrue(False, msg="Unknown check requested!")
 

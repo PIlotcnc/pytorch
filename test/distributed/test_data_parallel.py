@@ -18,10 +18,13 @@ import torch.nn.functional as F
 
 torch.set_default_dtype(torch.double)
 
+# TODO(alband) Remove this when this flag is not needed anymore
+torch._C._set_forward_AD_enabled(True)
+
 NO_NCCL = not hasattr(torch.distributed, "ProcessGroupNCCL")
 
 # batched grad doesn't support data parallel
-gradcheck = functools.partial(gradcheck, check_batched_grad=False)
+gradcheck = functools.partial(gradcheck, check_batched_grad=False, check_forward=True)
 _assertGradAndGradgradChecks = functools.partial(_assertGradAndGradgradChecks, check_batched_grad=False)
 
 class TestDataParallel(TestCase):

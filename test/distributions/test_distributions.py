@@ -35,6 +35,9 @@ import torch
 # Distributions tests use double as the default dtype
 torch.set_default_dtype(torch.double)
 
+# TODO(alband) Remove this when this flag is not needed anymore
+torch._C._set_forward_AD_enabled(True)
+
 from torch._six import inf
 from torch.testing._internal.common_utils import TestCase, run_tests, set_rng_seed, TEST_WITH_UBSAN, load_tests, \
     gradcheck
@@ -751,7 +754,7 @@ class TestDistributions(TestCase):
         def apply_fn(s, *params):
             return dist_ctor(*params).log_prob(s)
 
-        gradcheck(apply_fn, (s,) + tuple(ctor_params), raise_exception=True)
+        gradcheck(apply_fn, (s,) + tuple(ctor_params), raise_exception=True, check_forward=True)
 
     def _check_log_prob(self, dist, asset_fn):
         # checks that the log_prob matches a reference function
@@ -2015,7 +2018,8 @@ class TestDistributions(TestCase):
                 if scale_tril is not None:
                     scale_tril = scale_tril.tril()
                 return MultivariateNormal(mu, sigma, prec, scale_tril).log_prob(samples)
-            gradcheck(gradcheck_func, (mvn_samples, mean, covariance, precision, scale_tril), raise_exception=True)
+            gradcheck(gradcheck_func, (mvn_samples, mean, covariance, precision, scale_tril),
+                      raise_exception=True, check_forward=True)
 
         multivariate_normal_log_prob_gradcheck(mean, cov)
         multivariate_normal_log_prob_gradcheck(mean_multi_batch, cov)

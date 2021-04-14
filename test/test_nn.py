@@ -20,6 +20,9 @@ import torch
 # NN tests use double as the default dtype
 torch.set_default_dtype(torch.double)
 
+# TODO(alband) Remove this when this flag is not needed anymore
+torch._C._set_forward_AD_enabled(True)
+
 from torch._six import inf, nan
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
@@ -71,6 +74,9 @@ if TEST_NUMPY:
 
 DOUBLE_TENSORTYPES = [torch.double]
 
+# See #49409, we should remove these if we end up with a global gradcheck setting
+gradcheck = partial(gradcheck, check_forward=True)
+gradgradcheck = partial(gradgradcheck, check_forward=True)
 
 # WARNING: If you add a new top-level test case to this file, you MUST
 # update test/run_test.py to list it, otherwise it will NOT be run in
@@ -3611,7 +3617,8 @@ class TestNN(NNTestCase):
                     def fn(weight):
                         return wrapped_m(input)
 
-                    gradcheck(fn, (m.weight_orig,))
+                    # The input is not actually used and so forward ad check will fail
+                    gradcheck(fn, (m.weight_orig,), check_forward=False)
 
     @skipIfNoLapack
     def test_spectral_norm_load_state_dict(self):

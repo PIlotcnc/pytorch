@@ -1,6 +1,7 @@
 import torch
 from typing import Tuple, List
 from torch._vmap_internals import _vmap
+from . import forward_ad as fwAD
 
 # Utility functions
 
@@ -280,7 +281,7 @@ def vjp(func, inputs, v=None, create_graph=False, strict=False):
     return _tuple_postprocess(outputs, is_outputs_tuple), _tuple_postprocess(vjp, is_inputs_tuple)
 
 
-def jvp(func, inputs, v=None, create_graph=False, strict=False):
+def jvp(func, inputs, v=None, create_graph=False, strict=False, fw_mode=False):
     r"""Function that computes the dot product between  the Jacobian of
     the given function at the point given by the inputs and a vector ``v``.
 
@@ -302,6 +303,9 @@ def jvp(func, inputs, v=None, create_graph=False, strict=False):
             independent of it. If ``False``, we return a Tensor of zeros as the
             jvp for said inputs, which is the expected mathematical value.
             Defaults to ``False``.
+        fw_mode (bool, optional): If ``True``, forward mode AD will be used to
+            compute the jvp, otherwise, the backward of backward is used (sometimes
+            called the double backwards trick) but it will be significantly slower.
 
     Returns:
         output (tuple): tuple with:
@@ -331,16 +335,11 @@ def jvp(func, inputs, v=None, create_graph=False, strict=False):
         >>> jvp(adder, inputs, v)
         (tensor([2.2399, 2.5005]),
          tensor([5., 5.]))
-
-    Note:
-        The jvp is currently computed by using the backward of the backward
-        (sometimes called the double backwards trick) as we don't have support
-        for forward mode AD in PyTorch at the moment.
     """
 
     with torch.enable_grad():
         is_inputs_tuple, inputs = _as_tuple(inputs, "inputs", "jvp")
-        inputs = _grad_preprocess(inputs, create_graph=create_graph, need_graph=True)
+        inputs = _grad_preprocess(inputs, create_graph=create_graph, need_graph=not fw_mode)
 
         if v is not None:
             _, v = _as_tuple(v, "v", "jvp")
@@ -352,6 +351,25 @@ def jvp(func, inputs, v=None, create_graph=False, strict=False):
                                    "the user-provided function is a single Tensor "
                                    "with a single element.")
 
+    if fw_mode:
+        if v is None:
+            v = (torch.ones_like(inputs[0]),)
+
+        with fwAD.dual_level():
+            inputs_dual = [fwAD.make_dual(el_inp, el_v) for el_inp, el_v in zip(inputs, v)]
+
+            outputs_dual = func(*inputs_dual)
+            is_outputs_tuple, outputs_dual = _as_tuple(outputs_dual, "outputs of the user-provided function", "jvp")
+
+            outputs, grad_res = zip(*[fwAD.unpack_dual(o_dual) for o_dual in outputs_dual])
+
+        if strict:
+            for i, g in enumerate(grad_res):
+                if g is None:
+                    raise RuntimeError("The output of the user-provided function is independent of "
+                                       "input {}. This is not allowed in strict mode.".format(i))
+
+    else:
         outputs = func(*inputs)
         is_outputs_tuple, outputs = _as_tuple(outputs, "outputs of the user-provided function", "jvp")
         _check_requires_grad(outputs, "outputs", strict=strict)
@@ -363,13 +381,13 @@ def jvp(func, inputs, v=None, create_graph=False, strict=False):
         grad_inputs = _autograd_grad(outputs, inputs, grad_outputs, create_graph=True)
         _check_requires_grad(grad_inputs, "grad_inputs", strict=strict)
 
-    if create_graph:
-        with torch.enable_grad():
+        if create_graph:
+            with torch.enable_grad():
+                grad_res = _autograd_grad(grad_inputs, grad_outputs, v, create_graph=create_graph)
+        else:
             grad_res = _autograd_grad(grad_inputs, grad_outputs, v, create_graph=create_graph)
-            jvp = _fill_in_zeros(grad_res, outputs, strict, create_graph, "back_trick")
-    else:
-        grad_res = _autograd_grad(grad_inputs, grad_outputs, v, create_graph=create_graph)
-        jvp = _fill_in_zeros(grad_res, outputs, strict, create_graph, "back_trick")
+
+    jvp = _fill_in_zeros(grad_res, outputs, strict, create_graph, "back_trick")
 
     # Cleanup objects and return them to the user
     outputs = _grad_postprocess(outputs, create_graph)

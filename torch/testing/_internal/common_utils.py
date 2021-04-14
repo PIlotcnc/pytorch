@@ -2117,7 +2117,6 @@ class BytesIOContext(io.BytesIO):
     def __exit__(self, *args):
         pass
 
-
 def gradcheck(fn, inputs, **kwargs):
     # Wrapper around gradcheck that enables certain keys by default.
     # Use this testing-internal gradcheck instead of autograd.gradcheck so that new features like vmap and
@@ -2126,7 +2125,8 @@ def gradcheck(fn, inputs, **kwargs):
     #
     # All PyTorch devs doing testing should use this wrapper instead of autograd.gradcheck.
     keys_enabled_by_default = (
-        "check_batched_grad",)
+        "check_batched_grad",
+        "check_forward")
 
     for key in keys_enabled_by_default:
         kwargs[key] = kwargs.get(key, True)

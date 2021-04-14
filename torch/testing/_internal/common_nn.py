@@ -5332,6 +5332,10 @@ class NewModuleTest(InputVariableMixin, ModuleTest):  # type: ignore[misc]
             assert not kwargs
             return test_case._forward(module, inputs_and_params[:num_inputs])
 
+        # These modules don't actually take the arguments as inputs so forward check will fail for these
+        # We will be able to re-enable this when https://github.com/pytorch/pytorch/issues/49171 is done
+        check_forward = len(params) == 0
+
         # gradcheck doesn't support operators that take in dense inputs but
         # return sparse parameters. This only happens in the case of nn.Embedding
         # and nn.EmbeddingBag. Instead, we call `self.check_jacobian`, which
@@ -5342,11 +5346,11 @@ class NewModuleTest(InputVariableMixin, ModuleTest):  # type: ignore[misc]
             test_case.check_jacobian(module, input_tuple[0], test_input_jacobian)
         else:
             test_case.assertTrue(gradcheck(fn_to_gradcheck, input_tuple + params,
-                                           check_batched_grad=self.check_batched_grad))
+                                           check_batched_grad=self.check_batched_grad, check_forward=check_forward))
 
         if self.check_gradgrad:
             test_case.assertTrue(gradgradcheck(fn_to_gradcheck, input_tuple + params,
-                                               check_batched_grad=self.check_batched_grad))
+                                               check_batched_grad=self.check_batched_grad, check_forward=check_forward))
 
     def _do_test(self, test_case, module, input):
         num_threads = torch.get_num_threads()

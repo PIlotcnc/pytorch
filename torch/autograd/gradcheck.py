@@ -8,6 +8,7 @@ import warnings
 from typing import Callable, Union, Optional, Iterable, List, Tuple, Dict
 from torch._vmap_internals import vmap
 import functools
+from . import forward_ad as fwAD
 
 def zero_gradients(x):
     if isinstance(x, torch.Tensor):
@@ -638,6 +639,39 @@ def test_undefined_grad(fail_test, func, outputs, inputs) -> bool:
 
     return all(check_undefined_grad_support(output) for output in outputs_to_check)
 
+def get_analytical_jacobian_fw(fn, input, output):
+    # it is easier to call to_dense() on the sparse output than
+    # to modify analytical jacobian
+    if output.is_sparse:
+        raise ValueError('Sparse output is not supported at gradcheck yet. '
+                         'Please call to_dense() on the output of fn for gradcheck.')
+    if output.layout == torch._mkldnn:  # type: ignore
+        raise ValueError('MKLDNN output is not supported at gradcheck yet. '
+                         'Please call to_dense() on the output of fn for gradcheck.')
+    jacobian = make_jacobian(input, output.numel())
+
+    with fwAD.dual_level():
+        fw_grads = []
+        new_input = []
+        for inp in input:
+            if torch.is_tensor(inp) and inp.requires_grad:
+                if inp.layout == torch._mkldnn:  # type: ignore
+                    raise ValueError('MKLDNN inputs are not supported for forward gradcheck.')
+
+                inp = fwAD.make_dual(inp, torch.zeros_like(inp))
+                fw_grads.append(fwAD.unpack_dual(inp)[1])
+            new_input.append(inp)
+
+        for i, fw_grad in enumerate(fw_grads):
+            for lin_idx, grad_idx in enumerate(product(*[range(m) for m in fw_grad.size()])):
+                fw_grad[grad_idx] = 1
+                _, res = fwAD.unpack_dual(fn(new_input))
+                if res is None:
+                    jacobian[i][lin_idx].zero_()
+                else:
+                    jacobian[i][lin_idx].copy_(res.reshape(-1))
+                fw_grad[grad_idx] = 0
+    return jacobian
 
 def _as_tuple(x):
     if isinstance(x, tuple):
@@ -681,6 +715,8 @@ def gradcheck(
     check_undefined_grad: bool = True,
     check_grad_dtypes: bool = False,
     check_batched_grad: bool = False,
+    check_forward: bool = False,
+    stacklevel: int = 2
 ) -> bool:
     r"""Check gradients computed via small finite differences against analytical
     gradients w.r.t. tensors in :attr:`inputs` that are of floating point or complex type
@@ -726,6 +762,8 @@ def gradcheck(
             are supported and treated as zeros, for ``Tensor`` outputs.
         check_batched_grad (bool, optional): if True, check if we can compute
             batched gradients using prototype vmap support. Defaults to False.
+        check_forward (bool, optional): if True, check the forward mode AD gradient
+        stacklevel (int, optional): the stack level to use for raising errors and warnings
 
     Returns:
         True if all differences satisfy allclose condition
@@ -792,6 +830,28 @@ def gradcheck(
         if not test_undefined_grad(fail_test, func, outputs, tupled_inputs):
             return False
 
+    if check_forward:
+        for i, o in enumerate(outputs):
+            try:
+                fw_analytical = get_analytical_jacobian_fw(fn, tupled_inputs, o)
+            except RuntimeError as e:
+                msg = str(e)
+                # If the jvp formula isn't implemented, then we will warn the user. Otherwise, if the formula is
+                # implemented, then we check the result for correctness
+                if "Trying to use forward prop with" in msg:
+                    warnings.warn("Failed to compute gradcheck using fw mode: {}".format(msg), stacklevel=stacklevel)
+                    continue
+                else:
+                    raise e
+
+            if fw_analytical is not None:
+                # Test was not aborted while computing the jacobian
+                for j, (a, n) in enumerate(zip(fw_analytical, numerical)):
+                    if a.numel() != 0 or n.numel() != 0:
+                        if not torch.allclose(a, n, rtol, atol):
+                            return fail_test('Jacobian mismatch for output %d with respect to input %d,\n'
+                                             'numerical:%s\nforward analytical:%s\n' % (i, j, n, a))
+
     return True
 
 
@@ -808,6 +868,7 @@ def gradgradcheck(
     check_undefined_grad: bool = True,
     check_grad_dtypes: bool = False,
     check_batched_grad: bool = False,
+    check_forward: bool = False,
 ) -> bool:
     r"""Check gradients of gradients computed via small finite differences
     against analytical gradients w.r.t. tensors in :attr:`inputs` and
@@ -856,6 +917,7 @@ def gradgradcheck(
             are supported and treated as zeros
         check_batched_grad (bool, optional): if True, check if we can compute
             batched gradients using prototype vmap support. Defaults to False.
+        check_forward(bool, options): if True, check the forward mode AD gradient
 
     Returns:
         True if all differences satisfy allclose condition
@@ -886,7 +948,6 @@ def gradgradcheck(
         grad_inputs = torch.autograd.grad(outputs, input_args, grad_outputs, create_graph=True)
         return grad_inputs
 
-    return gradcheck(
-        new_func, tupled_inputs + tupled_grad_outputs, eps, atol, rtol, raise_exception,
-        nondet_tol=nondet_tol, check_undefined_grad=check_undefined_grad,
-        check_grad_dtypes=check_grad_dtypes, check_batched_grad=check_batched_grad)
+    return gradcheck(new_func, tupled_inputs + tupled_grad_outputs, eps, atol, rtol, raise_exception,
+                     nondet_tol=nondet_tol, check_undefined_grad=check_undefined_grad, check_grad_dtypes=check_grad_dtypes,
+                     check_batched_grad=check_batched_grad, stacklevel=3, check_forward=check_forward)
