@@ -184,7 +184,9 @@ NoneStatus canBeNone(Value* v) {
   if (v->node()->mustBeNone()) {
     return ALWAYS;
   }
-  if (v->type()->kind() == OptionalType::Kind) {
+  if (v->type()->kind() == OptionalType::Kind ||
+      (v->type()->kind() == UnionType::Kind &&
+       v->type()->expect<UnionType>()->can_hold_none())) {
     return MAYBE;
   }
   return NEVER;
@@ -541,6 +543,7 @@ struct Environment {
     if (!retval && required) {
       throwVarNotFoundError(ident, range);
     }
+
     return retval;
   }
 
@@ -1004,57 +1007,73 @@ struct to_ir {
   }
 
   void emitReturn(const Return& stmt) {
-    TypePtr result_type = def_stack_.back().declared_return_type_;
-    Value* result = emitExpr(stmt.expr(), result_type);
+    TypePtr declared_return_type =
+        def_stack_.back().declared_return_type_; // nullptr if not annotated
+    TypePtr type_hint = nullptr;
+    if (declared_return_type &&
+        (declared_return_type == AnyType::get() ||
+         declared_return_type->kind() == UnionType::Kind ||
+         declared_return_type->kind() == OptionalType::Kind)) {
+      type_hint = declared_return_type;
+    }
+    Value* actual_return =
+        emitExpr(stmt.expr(), type_hint);
+    TypePtr actual_return_type = actual_return->type();
     // result type is annotated, every return must convert to that type
-    if (result_type) {
+    if (declared_return_type) {
       // this guard skips implicit conversion from None -> Tensor for the return
       // type. otherwise forgetting a return a function returning a tensor will
       // cause a None to be converted to a tensor.
-      if (!(result_type->isSubtypeOf(TensorType::get()) &&
-            result->type()->isSubtypeOf(NoneType::get()))) {
-        result = tryConvertToType(
+      if (!(declared_return_type->isSubtypeOf(TensorType::get()) &&
+            actual_return_type->isSubtypeOf(NoneType::get()))) {
+        actual_return = tryConvertToType(
             stmt.range(),
             *graph,
-            result_type,
-            result,
+            declared_return_type,
+            actual_return,
             /*allow_conversions=*/true);
       }
-
-      if (!result->type()->isSubtypeOf(result_type)) {
+      if (!actual_return_type->isSubtypeOf(declared_return_type)) {
         throw ErrorReport(stmt.range())
             << "Return value was annotated as having type "
-            << result_type->repr_str() << " but is actually of type "
-            << result->type()->repr_str();
+            << declared_return_type->repr_str() << " but is actually of type "
+            << actual_return_type->repr_str();
       }
     } else {
-      result_type = def_stack_.back().merged_return_type_;
-      if (!result_type) {
-        result_type = result->type();
+      declared_return_type = def_stack_.back().merged_return_type_;
+      if (!declared_return_type) {
+        declared_return_type = actual_return_type;
       }
-      auto merged_result_type = unifyTypes(result_type, result->type());
-      if (!merged_result_type) {
+      auto merged_return_type =
+          unifyTypes(declared_return_type, actual_return_type);
+      if (!merged_return_type) {
         throw ErrorReport(stmt.range())
             << "Previous return statement returned a value of type "
-            << result_type->repr_str()
+            << declared_return_type->repr_str()
             << " but this return statement returns a value of type "
-            << result->type()->repr_str();
+            << actual_return_type->repr_str();
       }
-      result_type = merged_result_type.value();
+      declared_return_type = merged_return_type.value();
     }
-    AT_ASSERT(result_type);
+    AT_ASSERT(declared_return_type);
 
-    def_stack_.back().merged_return_type_ = result_type;
+    if (declared_return_type->kind() == UnionType::Kind) {
+      declared_return_type = actual_return_type;
+    }
+
+    def_stack_.back().merged_return_type_ = declared_return_type;
 
     // If the annotated return type is Any and the result type is not Any,
     // cast the result to Any to facilitate type unification between return
     // statements on different code paths (e.g. different branches of an if,
     // body and containing scope of a loop).
-    if (result_type == AnyType::get() && result->type() != AnyType::get()) {
-      result = graph->insertUncheckedCast(result, result_type);
+    if (declared_return_type == AnyType::get() &&
+        actual_return_type != AnyType::get()) {
+      actual_return =
+          graph->insertUncheckedCast(actual_return, declared_return_type);
     }
 
-    graph->insertNode(graph->create(prim::ReturnStmt, {result}, 0));
+    graph->insertNode(graph->create(prim::ReturnStmt, {actual_return}, 0));
     exit_blocks.insert(environment_stack->block());
   }
 
@@ -1136,10 +1155,10 @@ struct to_ir {
       return {};
     }
     // statement must be var {is, is not} None
-    auto name = Var(lhs).name().name();
-    // XXX - while it should in theory be possible to specialize
-    // the `x is None` to know x has type NoneType, we have previously not
-    // done this. Unfortunately, doing this will make the type None
+    const std::string& name = Var(lhs).name().name();
+    // While it should in theory be possible to specialize
+    // the `x is None` to know x has type NoneType, we have previously
+    // not done this. Unfortunately, doing this will make the type None
     // propagate further in all loaded models. The handling of
     // unwrap_optional will fail in these cases since export did
     // not expect that the input would be none and an unannotated None.
@@ -1154,6 +1173,19 @@ struct to_ir {
         return RefinementSet({}, {present});
       } else { // TK_ISNOT
         return RefinementSet({present}, {});
+      }
+    }
+    if (const auto& union_type = lhs_value->type()->cast<UnionType>()) {
+      std::vector<Refinement> present;
+      for (const auto& type : union_type->types()) {
+        if (type != NoneType::get()) {
+          present.emplace_back<Refinement>({name, type});
+        }
+      }
+      if (tok == TK_IS) {
+        return RefinementSet({}, present);
+      } else { // TK_ISNOT
+        return RefinementSet(present, {});
       }
     }
     return RefinementSet();
@@ -1629,7 +1661,8 @@ struct to_ir {
         graph->createStore(x, fv)->insertBefore(false_block->return_node());
       }
 
-      auto unified = unifyTypes(tv->type(), fv->type());
+      auto unified =
+          unifyTypes(tv->type(), fv->type(), /*default_to_union=*/true);
 
       // attempt to unify the types. we allow variables to be set to different
       // types in each branch as long as that variable is not already in scope,
@@ -1700,7 +1733,15 @@ struct to_ir {
         if (actual_type->kind() == AnyType::Kind) {
           return true;
         }
-        if (auto op = actual_type->cast<OptionalType>()) {
+        if (const auto& op = actual_type->cast<UnionType>()) {
+          return std::any_of(
+              op->types().begin(),
+              op->types().end(),
+              [&](const TypePtr union_contained_type) {
+                return union_contained_type->kind() == kind;
+              });
+        }
+        if (const auto& op = actual_type->cast<OptionalType>()) {
           return op->getElementType()->kind() == kind;
         }
         return false;
@@ -1724,16 +1765,38 @@ struct to_ir {
     };
     GatheredTypes gathered(typeParser_);
     gathered.gather(classinfo);
-    auto val = emitExpr(obj);
+    Value* val = emitExpr(obj);
     RefinementSet refinement;
     if (gathered.types.size() == 1 &&
         gathered.types.at(0)->isSubtypeOf(val->type()) &&
         obj.kind() == TK_VAR) {
       std::string ident = Var(obj).name().name();
-      Refinement isinstance(std::move(ident), gathered.types.at(0));
-      refinement = RefinementSet({isinstance}, {});
-    }
+      Refinement isinstance(ident, gathered.types.at(0));
 
+      if (val->type()->kind() == UnionType::Kind) {
+        auto union_val = val->type()->expect<UnionType>();
+        std::vector<TypePtr> new_union_types;
+        new_union_types.reserve(union_val->types().size() - 1);
+        std::copy_if(
+            union_val->types().begin(),
+            union_val->types().end(),
+            std::back_inserter(new_union_types),
+            [&](auto type_ptr) {
+              return type_ptr->kind() != gathered.types.at(0)->kind();
+            });
+
+        if (new_union_types.size() == 1) {
+          Refinement not_isinstance(std::move(ident), new_union_types.at(0));
+          refinement = RefinementSet(isinstance, not_isinstance);
+        } else {
+          auto new_union = UnionType::create(std::move(new_union_types));
+          Refinement not_isinstance(std::move(ident), new_union);
+          refinement = RefinementSet(isinstance, not_isinstance);
+        }
+      } else {
+        refinement = RefinementSet({isinstance}, {});
+      }
+    }
     if (gathered.staticallyTrue(val->type())) {
       return CondValue(*graph, obj.range(), true, std::move(refinement));
     }
@@ -2815,7 +2878,9 @@ struct to_ir {
         // after annotation so that variables assigned to this None will still
         // get the right type. To do this, we make a None constant that
         // has the type Optional[T]
-        if (type->kind() == OptionalType::Kind &&
+        if ((type->kind() == OptionalType::Kind ||
+             (type->kind() == UnionType::Kind &&
+              type->expect<UnionType>()->can_hold_none())) &&
             expr->type()->isSubtypeOf(NoneType::get())) {
           Node* none = graph->createNone();
           none->output()->setType(type);
@@ -3259,8 +3324,9 @@ struct to_ir {
       size_t n_binders,
       const TypePtr& type_hint = nullptr) {
     switch (tree.kind()) {
-      case TK_VAR:
+      case TK_VAR: {
         return environment_stack->getSugaredVar(Var(tree).name());
+      }
       case '.': {
         auto select = Select(tree);
         auto sv = emitSugaredExpr(select.value(), 1);
@@ -3490,6 +3556,99 @@ struct to_ir {
             ->call(tree->range(), method, named_values, {}, 0));
   }
 
+  Value* emitListLiteral(ListLiteral ll, TypePtr type_hint = nullptr) {
+    auto values = getValues(ll.inputs(), /*maybe_unpack=*/true);
+
+    // determine the element type of the list
+    // if we have a type hint of List[T], use T
+    // if the list is non-empty use type_of(list[0])
+    // otherwise assume it is List[Tensor]
+    TypePtr elem_type = TensorType::get();
+    if (type_hint) {
+      if (type_hint->kind() == TypeKind::ListType) {
+        elem_type = type_hint->expectRef<ListType>().getElementType();
+      } else {
+        // If the type hint was not a List[T] throw an error
+        throw ErrorReport(ll) << "Expected a List type hint but instead got "
+                              << type_hint->repr_str();
+      }
+    } else if (!values.empty()) {
+      std::stringstream ss;
+      auto types = fmap(values, [](const Value* v) { return v->type(); });
+      auto maybe_elem_type = unifyTypeList(types, ss);
+      if (!maybe_elem_type) {
+        throw ErrorReport(ll) << "Lists must contain only a single type\n"
+                              << ss.str();
+      }
+      elem_type = maybe_elem_type.value();
+    }
+
+    for (auto v : values) {
+      std::stringstream ss;
+      if (!v->type()->isSubtypeOfExt(elem_type, &ss)) {
+        throw ErrorReport(ll)
+            << "Lists must contain only a single type, expected: "
+            << elem_type->repr_str() << " but found " << v->type()->repr_str()
+            << " instead.\n"
+            << ss.str();
+      }
+    }
+    Value* result =
+        graph->insertNode(graph->createList(elem_type, values))->output();
+    return result;
+  }
+
+  Value* emitDictLiteral(DictLiteral dl, const TypePtr& type_hint = nullptr) {
+    auto key_trees = dl.key_inputs().tree()->trees();
+    auto value_trees = dl.value_inputs().tree()->trees();
+    AT_ASSERT(key_trees.size() == value_trees.size());
+    std::vector<Value*> keys, values;
+
+    for (size_t i = 0; i < key_trees.size(); ++i) {
+      keys.push_back(emitExpr(Expr(key_trees[i])));
+      values.push_back(emitExpr(Expr(value_trees[i])));
+    }
+
+    TypePtr key_type = nullptr;
+    TypePtr value_type = nullptr;
+
+    if (type_hint && type_hint->kind() == TypeKind::DictType) {
+      auto dict_type = type_hint->expect<DictType>();
+      key_type = dict_type->getKeyType();
+      value_type = dict_type->getValueType();
+    } else if (keys.empty()) {
+      key_type = StringType::get();
+      value_type = TensorType::get();
+    } else {
+      key_type = keys.at(0)->type();
+      value_type = values.at(0)->type();
+    }
+    AT_ASSERT(key_type != nullptr && value_type != nullptr);
+
+    auto checkTypeOfValues = [](const TypePtr& type,
+                                const char* what,
+                                const std::vector<Value*>& values,
+                                TreeList trees) {
+      for (size_t i = 0, N = values.size(); i < N; ++i) {
+        std::stringstream ss;
+        if (!values[i]->type()->isSubtypeOfExt(type, &ss)) {
+          throw ErrorReport(trees[i])
+              << "Dict " << what
+              << " must contain only a single type, expected: "
+              << type->repr_str() << " but found "
+              << values[i]->type()->repr_str() << " instead.\n"
+              << ss.str();
+        }
+      }
+    };
+    checkTypeOfValues(key_type, "keys", keys, key_trees);
+    checkTypeOfValues(value_type, "values", values, value_trees);
+
+    return graph
+        ->insertNode(graph->createDict(key_type, value_type, keys, values))
+        ->output();
+  }
+
   Value* emitSimpleExpr(
       const TreeRef& tree,
       const TypePtr& type_hint = nullptr) {
@@ -3571,47 +3730,7 @@ struct to_ir {
         return emitStringLiteral(StringLiteral(tree));
       } break;
       case TK_LIST_LITERAL: {
-        auto ll = ListLiteral(tree);
-        auto values = getValues(ll.inputs(), /*maybe_unpack=*/true);
-
-        // determine the element type of the list
-        // if we have a type hint of List[T], use T
-        // if the list is non-empty use type_of(list[0])
-        // otherwise assume it is List[Tensor]
-        TypePtr elem_type = TensorType::get();
-        if (type_hint) {
-          if (type_hint->kind() == TypeKind::ListType) {
-            elem_type = type_hint->expectRef<ListType>().getElementType();
-          } else {
-            // If the type hint was not a List[T] throw an error
-            throw ErrorReport(tree)
-                << "Expected a List type hint but instead got "
-                << type_hint->repr_str();
-          }
-        } else if (!values.empty()) {
-          std::stringstream ss;
-          auto types = fmap(values, [](const Value* v) { return v->type(); });
-          auto maybe_elem_type = unifyTypeList(types, ss);
-          if (!maybe_elem_type) {
-            throw ErrorReport(tree) << "Lists must contain only a single type\n"
-                                    << ss.str();
-          }
-          elem_type = maybe_elem_type.value();
-        }
-
-        for (auto v : values) {
-          std::stringstream ss;
-          if (!v->type()->isSubtypeOfExt(elem_type, &ss)) {
-            throw ErrorReport(tree)
-                << "Lists must contain only a single type, expected: "
-                << elem_type->repr_str() << " but found "
-                << v->type()->repr_str() << " instead.\n"
-                << ss.str();
-          }
-        }
-        Value* result =
-            graph->insertNode(graph->createList(elem_type, values))->output();
-        return result;
+        return emitListLiteral(ListLiteral(tree), type_hint);
       } break;
       case TK_TUPLE_LITERAL: {
         auto ll = TupleLiteral(tree);
@@ -3619,55 +3738,7 @@ struct to_ir {
         return graph->insertNode(graph->createTuple(values))->output();
       } break;
       case TK_DICT_LITERAL: {
-        auto dl = DictLiteral(tree);
-        auto key_trees = dl.key_inputs().tree()->trees();
-        auto value_trees = dl.value_inputs().tree()->trees();
-        AT_ASSERT(key_trees.size() == value_trees.size());
-        std::vector<Value*> keys, values;
-
-        for (size_t i = 0; i < key_trees.size(); ++i) {
-          keys.push_back(emitExpr(Expr(key_trees[i])));
-          values.push_back(emitExpr(Expr(value_trees[i])));
-        }
-
-        TypePtr key_type = nullptr;
-        TypePtr value_type = nullptr;
-
-        if (type_hint && type_hint->kind() == TypeKind::DictType) {
-          auto dict_type = type_hint->expect<DictType>();
-          key_type = dict_type->getKeyType();
-          value_type = dict_type->getValueType();
-        } else if (keys.empty()) {
-          key_type = StringType::get();
-          value_type = TensorType::get();
-        } else {
-          key_type = keys.at(0)->type();
-          value_type = values.at(0)->type();
-        }
-        AT_ASSERT(key_type != nullptr && value_type != nullptr);
-
-        auto checkTypeOfValues = [](const TypePtr& type,
-                                    const char* what,
-                                    const std::vector<Value*>& values,
-                                    TreeList trees) {
-          for (size_t i = 0, N = values.size(); i < N; ++i) {
-            std::stringstream ss;
-            if (!values[i]->type()->isSubtypeOfExt(type, &ss)) {
-              throw ErrorReport(trees[i])
-                  << "Dict " << what
-                  << " must contain only a single type, expected: "
-                  << type->repr_str() << " but found "
-                  << values[i]->type()->repr_str() << " instead.\n"
-                  << ss.str();
-            }
-          }
-        };
-        checkTypeOfValues(key_type, "keys", keys, key_trees);
-        checkTypeOfValues(value_type, "values", values, value_trees);
-
-        return graph
-            ->insertNode(graph->createDict(key_type, value_type, keys, values))
-            ->output();
+        return emitDictLiteral(DictLiteral(tree), type_hint);
       } break;
       case TK_LIST_COMP: {
         auto lc = ListComp(tree);

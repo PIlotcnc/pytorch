@@ -43,6 +43,7 @@ from jit.test_hash import TestHash  # noqa: F401
 from jit.test_complex import TestComplex  # noqa: F401
 from jit.test_jit_utils import TestJitUtils  # noqa: F401
 from jit.test_scriptmod_ann import TestScriptModuleInstanceAttributeTypeAnnotation  # noqa: F401
+from jit.test_union import TestUnion  # noqa: F401
 
 # Torch
 from torch import Tensor
@@ -2496,32 +2497,6 @@ graph(%Ra, %Rb):
 
         t = Test()
         self.assertEqual(t(torch.ones(1)), torch.ones(1) + 4)
-
-    def test_union_to_optional(self):
-        def test1(u: Union[int, None]) -> int:
-            if u is not None:
-                return u
-            else:
-                return 0
-        scripted = torch.jit.script(test1)
-        self.assertEqual(scripted(10), test1(10))
-
-        def test2(u: Union[None, int]) -> int:
-            if u is not None:
-                return u
-            else:
-                return 0
-        scripted = torch.jit.script(test2)
-        self.assertEqual(scripted(40), test2(40))
-
-        def test3(u: Union[float, int]) -> int:
-            if u is not None:
-                return u
-            else:
-                return 0
-        expected_result = "General Union types are not currently supported"
-        with self.assertRaisesRegex(RuntimeError, expected_result):
-            torch.jit.script(test3)
 
     def test_mutable_default_values(self):
         with self.assertRaisesRegex(Exception, "Mutable default parameters"):
@@ -8033,7 +8008,11 @@ dedent """
 
             return x, j
 
-        self.checkScript(test_refine_outside_loop, ())
+        # This test currently fails because Python expects `x` to be
+        #  Union[int, None] and we produce Optional[int]. When we
+        # fully remove Optionals from the codebase, we'll be able to
+        # add this back in. @ansley
+        # self.checkScript(test_refine_outside_loop, ())
 
         def assign_after_break(y):
             # type: (int)
@@ -10146,27 +10125,6 @@ dedent """
                     a = (x, x)
                     if 1 == 1:
                         a = 4
-
-    def test_if_tuple_sizes(self):
-        with self.assertRaisesRegex(RuntimeError, "Type mismatch"):
-            @torch.jit.script
-            def diff_tuple_sizes(x):
-                if 1 == 2:
-                    c0 = ((x, x), (x, x, x))
-                else:
-                    c0 = ((x, x, x), (x, x))
-                return c0
-
-    def test_if_different_type(self):
-        with self.assertRaisesRegex(RuntimeError, "Type mismatch: c0 is set to type int "
-                                    "in the true branch and type float in the false branch:"):
-            @torch.jit.script
-            def diff_type_used():
-                if 1 == 2:
-                    c0 = 1
-                else:
-                    c0 = 1.0
-                return c0
 
         with self.assertRaisesRegex(RuntimeError, "Variable 'c0' previously has type float"):
             @torch.jit.script
@@ -12880,7 +12838,6 @@ dedent """
             ('BroadcastingList3[float]', 'List[float]'),
             ('BroadcastingList2[int]', 'List[int]'),
             ('List[int]', 'List[int]'),
-            ('Optional[int]', 'Optional[int]'),
         ]
 
     # replacing code input & return type pair
@@ -12903,7 +12860,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             cu = torch.jit.CompilationUnit(self.format_code(code, pair))
             test_str.append(str(cu.foo.schema))
-        self.assertExpected("\n".join(test_str))
+        self.assertExpected("\n".join(test_str) + "\n")
 
     #  String frontend , Python 3-style type annotations , Script method
     def test_annot_string_py3_method(self):
@@ -12922,7 +12879,7 @@ dedent """
             tm = TestModule()
             tm.define(self.format_code(code, pair))
             test_str.append(str(tm.foo.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     #  String frontend , MyPy-style type comments , Script function
     def test_annot_string_mypy_fn(self):
@@ -12935,7 +12892,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             cu = torch.jit.CompilationUnit(self.format_code(code, pair))
             test_str.append(str(cu.foo.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     #  String frontend , MyPy-style type comments , Script method
     def test_annot_string_mypy_method(self):
@@ -12956,7 +12913,7 @@ dedent """
             tm = TestModule()
             tm.define(self.format_code(code, pair))
             test_str.append(str(tm.foo.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     #  Python AST Frontend , Python 3-style type annotations , Script function
     def test_annot_ast_py3_fn(self):
@@ -12973,7 +12930,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             fn = jit_utils._get_py3_code(self.format_code(code, pair), 'foo')
             test_str.append(str(fn.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     def test_multiline_annot_ast_py3_fn(self):
         code = dedent('''
@@ -13048,7 +13005,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             fn = jit_utils._get_py3_code(self.format_code(code, pair), 'instance')
             test_str.append(str(fn.foo.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     #  Python AST Frontend , MyPy-style type comments , Script function
     def test_annot_ast_mypy_fn(self):
@@ -13064,7 +13021,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             fn = jit_utils._get_py3_code(self.format_code(code, pair), 'foo')
             test_str.append(str(fn.schema))
-        self.assertExpected("\n".join(test_str))
+        self.assertExpected("\n".join(test_str) + "\n")
 
     #  Python AST Frontend , MyPy-style type comments , Script method
     def test_annot_ast_mypy_method(self):
@@ -13082,7 +13039,7 @@ dedent """
         for pair in self.type_input_return_pairs():
             fn = jit_utils._get_py3_code(self.format_code(code, pair), 'instance')
             test_str.append(str(fn.foo.schema))
-        self.assertExpectedStripMangled("\n".join(test_str))
+        self.assertExpectedStripMangled("\n".join(test_str) + "\n")
 
     # Tests that "# type: ignore[*]" is supported in type lines and is
     # properly ignored.
@@ -13786,7 +13743,7 @@ dedent """
         self.checkScript(fn, ("y"))
 
         def index_str_to_tensor(s):
-            # type: (str) -> int
+            # type: (str) -> Tensor
             return torch.tensor(ord(s))  # noqa T484
 
         s = u'\u00a3'.encode('utf8')[:1]

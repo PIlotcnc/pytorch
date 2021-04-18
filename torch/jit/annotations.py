@@ -5,13 +5,13 @@ import re
 import builtins
 import torch
 from .._jit_internal import List, Tuple, is_tuple, is_list, Dict, is_dict, Optional, \
-    is_optional, _qualified_name, Any, Future, is_future, is_ignored_fn
+    is_optional, _qualified_name, Any, Future, is_future, is_ignored_fn, Union, is_union
 from .._jit_internal import BroadcastingList1, BroadcastingList2, BroadcastingList3  # type: ignore
 from ._state import _get_script_class
 
 from torch._C import TensorType, TupleType, FloatType, IntType, ComplexType, \
-    ListType, StringType, DictType, BoolType, OptionalType, InterfaceType, AnyType, NoneType, \
-    DeviceObjType, StreamObjType, FutureType, EnumType
+    ListType, StringType, DictType, BoolType, OptionalType, InterfaceType, AnyType, \
+    NoneType, DeviceObjType, StreamObjType, FutureType, EnumType, UnionType
 
 
 from textwrap import dedent
@@ -44,7 +44,8 @@ class EvalEnv(object):
         'List': List,
         'Dict': Dict,
         'Optional': Optional,
-        'Future': Future,
+        'Union': Union,
+        'Future': Future
     }
 
     def __init__(self, rcb):
@@ -241,6 +242,8 @@ def split_type_line(type_line):
 def try_real_annotations(fn, loc):
     """Tries to use the Py3.5+ annotation syntax to get the type."""
     try:
+        # Note: anything annotated as `Optional[T]` will automatically
+        # be returned as `Union[T, None]` per fburl.com/ozn7av7k
         sig = inspect.signature(fn)
     except ValueError:
         return None
@@ -249,8 +252,8 @@ def try_real_annotations(fn, loc):
     if all(ann is sig.empty for ann in all_annots):
         return None
 
+    # Convert `sig.empty` to `None`
     def as_ann(ann):
-        # sig.empty is really annoying so convert it to None
         return ann if ann is not sig.empty else None
 
     arg_types = [ann_to_type(as_ann(p.annotation), loc)
@@ -305,6 +308,8 @@ def try_ann_to_type(ann, loc):
         msg = "Unsupported annotation {} could not be resolved because {} could not be resolved."
         assert valid_type, msg.format(repr(ann), repr(contained))
         return OptionalType(valid_type)
+    if is_union(ann):
+        return UnionType([try_ann_to_type(a, loc) for a in ann.__args__])
     if torch.distributed.rpc.is_available() and is_rref(ann):
         return RRefType(try_ann_to_type(ann.__args__[0], loc))
     if is_future(ann):
@@ -369,6 +374,8 @@ __all__ = [
     'is_list',
     'Dict',
     'is_dict',
+    'is_optional',
+    'is_union',
     'TensorType',
     'TupleType',
     'FloatType',

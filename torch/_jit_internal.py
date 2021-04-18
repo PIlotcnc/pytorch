@@ -22,7 +22,7 @@ import torch.distributed.rpc
 from torch._utils_internal import get_source_lines_and_file
 from torch.futures import Future
 import torch.package._mangling as package_mangling
-from typing import Tuple, List, Dict, Optional, Union, Any, TypeVar, Generic, Callable  # noqa: F401
+from typing import Tuple, List, Dict, Optional, Union, Any, TypeVar, Generic, Callable    # noqa: F401
 
 if sys.version_info[:2] > (3, 7):
     from typing import Final
@@ -803,33 +803,31 @@ def is_dict(ann):
         (getattr(ann, '__origin__', None) is Dict or
             getattr(ann, '__origin__', None) is dict)
 
+def is_union(ann):
+    if ann is Union:
+        raise_error_container_parameter_missing("Union")
+
+    return (hasattr(ann, '__module__') and
+            ann.__module__ == 'typing' and
+            (getattr(ann, '__origin__', None) is Union))
+
 def is_optional(ann):
     if ann is Optional:
         raise_error_container_parameter_missing("Optional")
 
-    # Optional[T] is just shorthand for Union[T, None], so check for both
-    def safe_is_subclass(the_type, super_type):
-        # Don't throw if `the_type` isn't a class type (e.g. if it is
-        # another type annotation instance)
-        if not inspect.isclass(the_type):
-            return False
-        return issubclass(the_type, super_type)
+    def _is_optional(ann):
+        return (hasattr(ann, '__module__') and
+            ann.__module__ == 'typing' and
+            (getattr(ann, '__origin__', None) is Optional))
 
-    if not hasattr(ann, '__module__'):
-        return False
+    # TODO: @ansley Tranform Optionals into Unions as part of follow-up
+    #def args_contains_None(ann):
+    #    if sys.version_info >= (3, 8):
+    #        from typing import get_args
+    #        return None in get_args(ann)
+    #    return "None" in str(ann)
 
-    union_optional = False
-    if ann.__module__ == 'typing' and \
-       (getattr(ann, '__origin__', None) is Union):
-        args = getattr(ann, '__args__', ())
-        if len(args) == 2:
-            union_optional = (safe_is_subclass(args[1], type(None)) and not safe_is_subclass(args[0], type(None))) \
-                or (safe_is_subclass(args[0], type(None)) and not safe_is_subclass(args[1], type(None)))
-
-    optional = ann.__module__ == 'typing' and \
-        (getattr(ann, '__origin__', None) is Optional)
-
-    return optional or union_optional
+    return _is_optional(ann)
 
 def is_future(ann):
     if ann is Future:
