@@ -1,4 +1,5 @@
 import builtins
+from contextlib import contextmanager
 import importlib
 import inspect
 import io
@@ -99,6 +100,7 @@ class PackageImporter(Importer):
         self.modules["torch_package_importer"] = self  # type: ignore
 
         self._mangler = PackageMangler()
+        self.last_map_location = None
 
         # used for torch.serialization._load
         self.Unpickler = lambda *args, **kwargs: PackageUnpickler(self, *args, **kwargs)
@@ -204,7 +206,18 @@ class PackageImporter(Importer):
         data_file = io.BytesIO(self.zip_reader.get_record(pickle_file))
         unpickler = self.Unpickler(data_file)
         unpickler.persistent_load = persistent_load
-        result = unpickler.load()
+
+        @contextmanager
+        def set_map_location():
+            # to let TorchScript's reduce_packge read specified map location
+            self.last_map_location = map_location
+            try:
+                yield
+            finally:
+                self.last_map_location = None
+
+        with set_map_location():
+            result = unpickler.load()
 
         # TODO from zdevito:
         #   This stateful weird function will need to be removed in our efforts
@@ -491,7 +504,14 @@ class PackageImporter(Importer):
         return cur
 
     def _add_file(self, filename: str):
+        """Assembles a Python module out of the given file. Will ignore files in the .data directory.
+
+        Args:
+            filename (str): the name of the file inside of the package archive to be added
+        """
         *prefix, last = filename.split("/")
+        if len(prefix) > 1 and prefix[0] == ".data":
+            return
         package = self._get_or_create_package(prefix)
         if isinstance(package, _ExternNode):
             raise ImportError(

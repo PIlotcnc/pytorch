@@ -103,10 +103,13 @@ class PackageExporter:
 
         self.zip_file = torch._C.PyTorchFileWriter(f)
         self.zip_file.set_min_version(6)
+        self.serialized_reduces: Dict[str, Any] = {}
         self.serialized_storages: Dict[str, Any] = {}
+        self.storage_ids: Dict[str, str] = {}  # mapping of storage pointers to their serialized_storages id
         self.extern_modules: List[str] = []
         self.provided: Dict[str, bool] = {}
         self.verbose = verbose
+        self.script_module_serializer = torch._C.ScriptModuleSerializer(self.zip_file)
 
         if isinstance(importer, Importer):
             self.importer = importer
@@ -124,6 +127,7 @@ class PackageExporter:
         self.matched_patterns: Set[int] = set()
         self.debug_deps: List[Tuple[str, str]] = []
         self._unique_id = 0
+        self._next_storage_id = 0
 
     def save_source_file(
         self, module_name: str, file_or_directory: str, dependencies=True
@@ -560,13 +564,18 @@ node [shape=box];
     def _persistent_id(self, obj):
         if torch.is_storage(obj):
             storage_type = normalize_storage_type(type(obj))
-            obj_key = str(obj._cdata)
+            if self.storage_ids.get(str(obj._cdata)) is None:
+                self.storage_ids[str(obj._cdata)] = self.get_unique_id() 
+            obj_key = self.storage_ids[str(obj._cdata)]
             location = location_tag(obj)
             self.serialized_storages[obj_key] = obj
 
             return ("storage", storage_type, obj_key, location, obj.size())
         if hasattr(obj, "__reduce_package__"):
-            return ("reduce_package", *obj.__reduce_package__(self))
+            if self.serialized_reduces.get(id(obj)) is None:
+                self.serialized_reduces[id(obj)] = obj.__reduce_package__(self)
+
+            return ("reduce_package", *self.serialized_reduces[id(obj)])
 
         return None
 
@@ -623,6 +632,7 @@ node [shape=box];
             self.zip_file.write_record(name, storage.data_ptr(), num_bytes)
         contents = "\n".join(self.extern_modules) + "\n"
         self._write(".data/extern_modules", contents)
+        self.script_module_serializer.write_files()
         self._finalize_zip()
 
     def _finalize_zip(self):
