@@ -2234,6 +2234,36 @@ class TestQuantizeFx(QuantizationTestCase):
             },
             prepare_custom_config_dict=prepare_custom_config_dict)
 
+    def test_no_extra_quant_dequant(self):
+        """ Test that we don't insert unnecesssary quant/dequant"""
+        class M(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.w = torch.ones(5, 5)
+                self.b = torch.zeros(5)
+
+            def forward(self, x):
+                x = torch.cat((x,), 1)
+                tmp = x.size()
+                x = torch.nn.functional.linear(x, self.w, self.b)
+                y = x * tmp[0]
+                return y
+
+        model = M().eval()
+        qconfig_dict = {
+            "": None,
+            "object_type": [
+                (torch.nn.functional.linear, default_qconfig),
+            ],
+        }
+        m = prepare_fx(model, qconfig_dict)
+        m(torch.rand(5, 5))
+        m = convert_fx(m)
+        occurrence = {
+            ns.call_method("dequantize"): 1
+        }
+        self.checkGraphModuleNodes(m, expected_node_occurrence=occurrence)
+
 @skipIfNoFBGEMM
 class TestQuantizeFxOps(QuantizationTestCase):
     """Unit tests for individual ops
