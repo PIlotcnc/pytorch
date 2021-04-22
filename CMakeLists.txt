@@ -324,6 +324,10 @@ if(WIN32)
   endif()
 endif()
 
+if(LINUX AND USE_DISTRIBUTED)
+  find_package(OpenSSL 1.1 REQUIRED EXACT)
+endif()
+
 # Linux distributions do not want too many embedded sources, in that sense we
 # need to be able to build pytorch with an (almost) empty third_party
 # directory.
