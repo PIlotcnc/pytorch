@@ -297,6 +297,62 @@ void setstateTuple(
     }
   }
 }
+
+// Check if the global static map of backend debug info
+// constaind debug info for this module and any of its children.
+// If so combine all the maps together and return one.
+DelegateDebugInfoMapType getBackendDebugInfoMap(const Module& m) {
+  DelegateDebugInfoMapType debug_map;
+  const auto& map =
+      getStaticBackendModuleDebugInfoMapPtr()->getDebugInfoMap(m._ivalue());
+  if (map) {
+    debug_map.insert(map.value().begin(), map.value().end());
+  }
+  for (const auto& c : m.children()) {
+    const auto& child_debug_map = getBackendDebugInfoMap(c);
+    debug_map.insert(child_debug_map.begin(), child_debug_map.end());
+  }
+  return debug_map;
+}
+
+SourceRangeRecords getBackendSourceRanges(const Module& m) {
+  constexpr size_t kSourceRange = 1;
+  SourceRangeRecords sr_records;
+  const auto& map =
+      getStaticBackendModuleDebugInfoMapPtr()->getDebugInfoMap(m._ivalue());
+  if (map) {
+    const auto& map_val = map.value();
+    // This map is map of debug handle-to-delegateDebugInfoType
+    // DebugInfoPair = <source range, inlined_cs_ptr>
+    for (const auto& it : map_val) {
+      sr_records.emplace_back(
+          std::numeric_limits<size_t>::max(), it.second.first);
+      auto cs_ptr = it.second.second;
+      if (cs_ptr) {
+        for (const auto& e : cs_ptr->vec()) {
+          const auto sr = std::get<kSourceRange>(e);
+          sr_records.emplace_back(std::numeric_limits<size_t>::max(), sr);
+        }
+      }
+    }
+  }
+  for (const auto& c : m.children()) {
+    const auto& child_sr_records = getBackendSourceRanges(c);
+    sr_records.reserve(sr_records.size() + child_sr_records.size());
+    std::move(
+        child_sr_records.begin(),
+        child_sr_records.end(),
+        std::back_inserter(sr_records));
+  }
+  return sr_records;
+}
+
+void cleanupBackendModuleDebugInfoMap(const Module& m) {
+  getStaticBackendModuleDebugInfoMapPtr()->removeDebugInfoMap(m._ivalue());
+  for (const auto& c : m.children()) {
+    getStaticBackendModuleDebugInfoMapPtr()->removeDebugInfoMap(c._ivalue());
+  }
+}
 } // namespace
 
 void moduleMethodsTuple(
@@ -532,21 +588,47 @@ class ScriptModuleSerializer {
     // TODO: Build utility to strip off debug map. It should also do the
     // same for debug_pkl files
     if (save_mobile_debug_info) {
+      static constexpr size_t kMinToCompress = 200;
+      // For delegated backends get source ranges that are in the debug info
+      // map. Since delegated backend replace original module with lowered
+      // module we will not serialize original module's code which is what would
+      // have contained source range. Since we dont have that anymore, extract
+      // source ranges out of delegated module and store in a separate archive.
+      // Note that we must do this first because in order to serialize inlined
+      // CS appropriate source_range_tags must have been generated.
+      auto backend_source_range_records = getBackendSourceRanges(module);
+      SourceRangePickler source_range_pickler;
+      updateSourceRangeTags(backend_source_range_records);
+      auto range_data = source_range_pickler.pickle(
+          backend_source_range_records, source_range_tags_);
+      std::string debugFilename = "delegated_backends.debug_pkl";
+      writer_.writeRecord(
+          debugFilename,
+          range_data.data(),
+          range_data.size(),
+          range_data.size() > kMinToCompress /*compress*/);
+
+      // For delegated backends get debug_info_map
+      // This is merged with other debug_info_map of other modules
+      // which were not delegated.
+      auto backend_debug_info_map = getBackendDebugInfoMap(module);
       // Now get the debug-handles-to-inlined-cs-ptr-map
       // And serialize that in a separate archive
       auto debug_handle_cs_ptr_map = debug_handle_manager->getCallStackPtrMap();
+      debug_handle_cs_ptr_map.insert(
+          backend_debug_info_map.begin(), backend_debug_info_map.end());
       InlinedCallStackPickler inlined_cs_pickler;
       auto cs_data = inlined_cs_pickler.pickle(
           debug_handle_cs_ptr_map, source_range_tags_);
       // Write out the debug-handle-to-InlinedCallStackPtr map
       std::string filename = "callstack_debug_map.pkl";
-      static constexpr size_t kMinToCompress = 200;
       writer_.writeRecord(
           filename,
           cs_data.data(),
           cs_data.size(),
           cs_data.size() > kMinToCompress /*compress*/);
     }
+    cleanupBackendModuleDebugInfoMap(module);
   }
 
   void convertNamedType(const c10::NamedTypePtr& class_type) {

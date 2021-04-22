@@ -2,6 +2,7 @@
 
 #include <ATen/core/jit_type.h>
 #include <torch/csrc/jit/backends/backend.h>
+#include <torch/csrc/jit/backends/backend_debug_handler.h>
 #include <torch/csrc/jit/backends/backend_resolver.h>
 #include <torch/csrc/jit/frontend/code_template.h>
 
@@ -62,6 +63,11 @@ Module codegen_backend_module(
       "torch.jit." + backend_name + "LoweredModule",
       std::make_shared<CompilationUnit>(),
       /*shouldMangle=*/true);
+
+  // 1. Initialized debug infor recorder with loweredModule pointer.
+  // 2. Later call debug_info_recorder.stopRecording() to gather
+  //    recorded debug info and save it in a static global map.
+  BackendModuleDebugInfoRecorder debug_info_recorder(loweredModule._ivalue());
 
   // Generate attributes.
   // This is the preprocessed module.
@@ -274,6 +280,10 @@ Module codegen_backend_module(
         "] is not available. Execution of this Module is still possible by "
         "saving and loading on a device where the backend is available.");
   }
+
+  // stop debug info recording.
+  debug_info_recorder.stopRecording();
+
   return loweredModule;
 }
 } // namespace detail

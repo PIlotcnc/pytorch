@@ -1,4 +1,6 @@
 #pragma once
+#include <ATen/core/ivalue.h>
+
 #include <torch/csrc/jit/ir/scope.h>
 
 #include <atomic>
@@ -70,18 +72,74 @@ namespace jit {
  *  1 provides debug handles to backends and 2 provides runtime a way to map
  * debug handles to source level debug info.
  */
+using DebugHandleType = int64_t;
 class TORCH_API BackendDebugHandleManager {
  public:
   BackendDebugHandleManager() = default;
   int64_t getNextDebugHandleForInlinedCallStackPtr(
       const SourceRange& range,
       const InlinedCallStackPtr& cs_ptr);
-  std::unordered_map<int64_t, DebugInfoPair> getCallStackPtrMap();
+  std::unordered_map<DebugHandleType, DebugInfoPair> getCallStackPtrMap();
 
  private:
-  static std::atomic<int64_t> unique_debug_handle_;
-  std::unordered_map<int64_t, DebugInfoPair> handles_to_inlined_callstack_ptrs_;
+  static std::atomic<DebugHandleType> unique_debug_handle_;
+  std::unordered_map<DebugHandleType, DebugInfoPair>
+      handles_to_inlined_callstack_ptrs_;
 };
 
+// Copied from torch/csrc/jit/api/object.h
+// to avoid including that file.
+using ObjectPtr = c10::intrusive_ptr<c10::ivalue::Object>;
+using DelegateDebugInfoMapType =
+    std::unordered_map<DebugHandleType, DebugInfoPair>;
+
+/*
+ * This class is used to generate debug info map = module's inline callstack ptr
+ * map It is initialized with module's object ptr and during ctor it will
+ * instantiate debug_handle_manager and initialize thread local pointer to it.
+ * backend's preprocess will call generate_debug_handles, which uses
+ * debug_handle_manager to generate debug handles. When lowering process
+ * finishes, calling stopRecording will extract debug info map from
+ * debug_handle_manager and save it in an static global map to be
+ * used/serialized later.
+ */
+class BackendModuleDebugInfoRecorder {
+ public:
+  BackendModuleDebugInfoRecorder(ObjectPtr module_ptr);
+  ~BackendModuleDebugInfoRecorder();
+  // Reason this is not done as RAII is that work done in stopRecording
+  // can throw, and throwing with dtor will call terminate and thus voids any
+  // exception catching at a higher level.
+  void stopRecording();
+
+ private:
+  BackendDebugHandleManager debug_handle_manager;
+  ObjectPtr module_ptr_;
+};
+
+BackendDebugHandleManager* getBackendDebugHandleManager();
+
+/*
+ * This class will store map of module object pointer to debug info map.
+ * Idea is that every lowered module will have its debug map stored here.
+ * Later during serialization, if the module is of lowered module type,
+ * we can lookup this map and get debug map which we will serialize.
+ */
+class BackendModuleDebugInfoMap {
+ public:
+  BackendModuleDebugInfoMap() = default;
+  void addDebugInfoMap(
+      const ObjectPtr& module_ptr,
+      DelegateDebugInfoMapType&& debug_map);
+  void removeDebugInfoMap(const ObjectPtr& module_ptr);
+  c10::optional<DelegateDebugInfoMapType> getDebugInfoMap(
+      const ObjectPtr& module_ptr);
+
+ private:
+  std::mutex debug_info_mutex_;
+  std::unordered_map<ObjectPtr, DelegateDebugInfoMapType> debug_info_map_;
+};
+
+BackendModuleDebugInfoMap* getStaticBackendModuleDebugInfoMapPtr();
 } // namespace jit
 } // namespace torch
