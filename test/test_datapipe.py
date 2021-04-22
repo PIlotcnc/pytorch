@@ -791,11 +791,64 @@ class TestTyping(TestCase):
                [1, '1', 2, '2'])
         for ds in dss:
             dp = DP(ds)
-            with self.assertRaisesRegex(RuntimeError, r"Expected an instance of subtype"):
+            with self.assertRaisesRegex(RuntimeError, r"Expected an instance as subtype"):
                 list(d for d in dp)
 
             with runtime_validation_disabled():
                 self.assertEqual(list(d for d in dp), ds)
+
+
+        # Type reinforcement
+        T = TypeVar('T', int, str)
+
+
+        class DP(IterDataPipe[T]):  # type: ignore
+            def __init__(self, ds):
+                self.ds = ds
+
+            def __iter__(self) -> Iterator[T]:
+                for d in self.ds:
+                    yield d
+
+        ds = list(range(10))
+
+        dp = DP(ds)
+        with warnings.catch_warnings(record=True) as wa:
+            dp.reinforce_type(int)
+            self.assertRegex(
+                str(wa[0].message),
+                r"The type of data generated from `DataPipe` instance won't be validated")
+
+
+        class DP(IterDataPipe[T]):  # type: ignore
+            def __init__(self, ds):
+                self.ds = ds
+
+            @runtime_validation
+            def __iter__(self) -> Iterator[T]:
+                for d in self.ds:
+                    yield d
+
+        # Valid type reinforcement
+        dp = DP(ds).reinforce_type(int)
+        self.assertEqual(list(d for d in dp), ds)
+
+        # Invalid type
+        with self.assertRaisesRegex(TypeError, r"'expected_type' must be a type"):
+            dp = DP(ds).reinforce_type(1)
+
+        # Type is not subtype
+        with self.assertRaisesRegex(TypeError, r"Expected 'expected_type' as a subtype of"):
+            dp = DP(ds).reinforce_type(float)
+
+        # Invalid data at runtime
+        dp = DP(ds).reinforce_type(str)
+        with self.assertRaisesRegex(RuntimeError, r"Expected an instance as subtype"):
+            list(d for d in dp)
+
+        # Context Manager to disable the runtime validation
+        with runtime_validation_disabled():
+            self.assertEqual(list(d for d in dp), ds)
 
 
 if __name__ == '__main__':
