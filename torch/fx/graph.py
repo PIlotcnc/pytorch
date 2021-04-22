@@ -1011,15 +1011,20 @@ def forward(self, {', '.join(free_vars)}){maybe_return_annotation[0]}:
                     m_itr = self.owning_module
                     for i, atom in enumerate(target_atoms):
                         m_itr = getattr(m_itr, atom, None)
+                        if isinstance(m_itr, torch.nn.Module):
+                            continue
+                        seen_qualname = '.'.join(target_atoms[:i])
                         if m_itr is None:
-                            seen_qualname = '.'.join(target_atoms[:i])
                             raise RuntimeError(f'Node {node} target {node.target} references nonexistent attribute '
                                                f'{atom} of {seen_qualname}')
+                        else:
+                            raise RuntimeError(f'Node {node} target {node.target} {atom} of {seen_qualname} does '
+                                               'not reference an nn.Module')
 
     def eliminate_dead_code(self):
         """
         Remove all dead code from the graph, based on each node's number of
-        users, and whether the nodes have any side effects The graph must be
+        users, and whether the nodes have any side effects. The graph must be
         topologically sorted before calling.
 
         Returns:
