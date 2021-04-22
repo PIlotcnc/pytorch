@@ -25,6 +25,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -237,7 +238,12 @@ struct TORCH_API Module : public Object {
   // function creates a new `ClassType` and returns a new instance that has the
   // same data as the current instance but with the new type, shared ClassType
   // will be preserved as well
-  Module clone(bool inplace = false) const;
+  Module clone(
+      bool inplace = false,
+      const std::unordered_set<std::string>& ignored_methods =
+          std::unordered_set<std::string>(),
+      const std::unordered_set<std::string>& ignored_attributes =
+          std::unordered_set<std::string>()) const;
 
   void clone_method(const Module& orig, const std::string& name);
 
@@ -258,7 +264,9 @@ struct TORCH_API Module : public Object {
   Module clone_impl(
       std::unordered_map<TypePtr, TypePtr>& type_remap,
       bool inplace,
-      IValue::HashAliasedIValueMap memo) const;
+      IValue::HashAliasedIValueMap memo,
+      const std::unordered_set<std::string>& ignored_methods,
+      const std::unordered_set<std::string>& ignored_attributes) const;
 
   void clone_method(
       const Module& orig,

@@ -720,6 +720,19 @@ void initJITBindings(PyObject* module) {
                 methods_to_optimize);
           })
       .def(
+          "_clone_module_with_class",
+          [](script::Module& module,
+             std::vector<std::string>& ignored_methods,
+             std::vector<std::string>& ignored_attributes) {
+            const bool inplace = false;
+            const std::unordered_set<std::string> ignored_methods_set(
+                ignored_methods.begin(), ignored_methods.end());
+            const std::unordered_set<std::string> ignored_attributes_set(
+                ignored_attributes.begin(), ignored_attributes.end());
+            return module.clone(
+                inplace, ignored_methods_set, ignored_attributes_set);
+          })
+      .def(
           "_jit_pass_vulkan_insert_prepacked_ops",
           [](std::shared_ptr<Graph>& graph) {
             return vulkanInsertPrePackedOps(graph);
