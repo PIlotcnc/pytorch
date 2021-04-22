@@ -60,6 +60,7 @@ jit_core_headers = [
     "torch/csrc/utils/memory.h",
     "torch/csrc/WindowsTorchApiMacro.h",
     "torch/csrc/jit/frontend/source_range.h",
+    "torch/csrc/jit/serialization/inlined_callstack_serialization.h",
     "torch/csrc/jit/serialization/source_range_serialization.h",
     "torch/csrc/jit/frontend/lexer.h",
     "torch/csrc/jit/frontend/strtod.h",
@@ -134,6 +135,7 @@ core_sources_full_mobile = [
     "torch/csrc/jit/api/function_impl.cpp",
     "torch/csrc/jit/api/module.cpp",
     "torch/csrc/jit/api/object.cpp",
+    "torch/csrc/jit/backends/backend_debug_handler.cpp",
     "torch/csrc/jit/backends/backend_detail.cpp",
     "torch/csrc/jit/backends/backend_interface.cpp",
     "torch/csrc/jit/backends/backend_resolver.cpp",
@@ -247,6 +249,7 @@ core_sources_full_mobile = [
     "torch/csrc/jit/serialization/pickle.cpp",
     "torch/csrc/jit/serialization/python_print.cpp",
     "torch/csrc/jit/serialization/source_range_serialization.cpp",
+    "torch/csrc/jit/serialization/inlined_callstack_serialization.cpp",
     "torch/csrc/jit/tensorexpr/block_codegen.cpp",
     "torch/csrc/jit/tensorexpr/bounds_inference.cpp",
     "torch/csrc/jit/tensorexpr/bounds_overlap.cpp",
@@ -355,7 +358,9 @@ torch_mobile_core = [
 
 libtorch_lite_eager_symbolication = [
     "torch/csrc/jit/frontend/source_range.cpp",
+    "torch/csrc/jit/ir/scope.cpp",
     "torch/csrc/jit/mobile/debug_info.cpp",
+    "torch/csrc/jit/serialization/inlined_callstack_serialization.cpp",
     "torch/csrc/jit/serialization/source_range_serialization.cpp",
     # Later we can split serialization and deserialization logic
     # to have better separation within build and only build relevant parts.
