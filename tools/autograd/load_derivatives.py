@@ -10,7 +10,7 @@ import yaml
 from tools.codegen.api.autograd import (Derivative, DifferentiabilityInfo,
                                         SavedAttribute, ForwardDerivative)
 from tools.codegen.api.types import (Binding, CppSignatureGroup, NamedCType, BaseCType, VectorCType,
-                                     intArrayRefT, tensorOptionsT, typeAndSizeT, intT,
+                                     intArrayRefT, tensorOptionsT, typeAndSizeT, intT, boolT,
                                      tensorGeometryT, scalarTypeT, SpecialArgName)
 from tools.codegen.api import cpp
 from tools.codegen.gen import parse_native_yaml
@@ -492,6 +492,11 @@ def saved_variables(
             'nctype': lambda name: NamedCType(name, BaseCType(intArrayRefT)),
             'expr': stride_expr,
         }),
+        # replace self.is_conj() with self_conjugate
+        (r'{}.is_conj\(\)', {
+            'suffix': '_conjugate',
+            'nctype': lambda name: NamedCType(name, BaseCType(boolT)),
+        })
     ]
 
     # find which arguments need to be saved

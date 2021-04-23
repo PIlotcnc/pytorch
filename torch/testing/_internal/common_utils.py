@@ -1232,6 +1232,12 @@ class TestCase(expecttest.TestCase):
         assert (atol is None) == (rtol is None), "If one of atol or rtol is specified, then the other must be too"
         debug_msg: Optional[str] = None
 
+        if isinstance(x, torch.Tensor) and x.is_conj():
+            x = x.resolve_conj()
+
+        if isinstance(y, torch.Tensor) and y.is_conj():
+            y = y.resolve_conj()
+
         # Tensor x Number and Number x Tensor comparisons
         if isinstance(x, torch.Tensor) and isinstance(y, Number):
             self.assertEqual(x.item(), y, atol=atol, rtol=rtol, msg=msg,

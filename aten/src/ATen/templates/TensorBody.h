@@ -136,6 +136,14 @@ class TORCH_API Tensor {
     }
   }
 
+  Tensor conj() const {
+    if (!this->is_complex()) {
+      return *this;
+    } else {
+      return this->_conj();
+    }
+  }
+
   /// Should be used if *this can reasonably be expected to be contiguous and
   /// performance is important.
   /// Compared to contiguous, it saves a reference count
@@ -361,6 +369,15 @@ class TORCH_API Tensor {
   C10_DEPRECATED_MESSAGE("Tensor.is_variable() is deprecated; everything is a variable now. (If you want to assert that variable has been appropriately handled already, use at::impl::variable_excluded_from_dispatch())")
   bool is_variable() const noexcept {
     return !at::impl::variable_excluded_from_dispatch();
+  }
+
+  inline bool is_conj() const {
+    return impl_->is_conj();
+  }
+
+  // TODO: do I need to add this method directly on the Tensor to implement conj_view() in UnaryOps?
+  inline void set_conj(bool conjugate) const {
+    impl_->set_conj(conjugate);
   }
 
   /// Returns a `Tensor`'s layout.

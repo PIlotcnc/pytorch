@@ -71,12 +71,12 @@ const char* toString(DispatchKey t) {
     case DispatchKey::PrivateUse3:
       return "PrivateUse3";
 
+    case DispatchKey::Conjugate:
+      return "Conjugate";
     case DispatchKey::Meta:
       return "Meta";
-
     case DispatchKey::InplaceOrView:
       return "InplaceOrView";
-
     case DispatchKey::Autograd:
       return "Autograd";
     case DispatchKey::AutogradCPU:

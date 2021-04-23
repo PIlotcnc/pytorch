@@ -235,6 +235,7 @@ def _tensor_str(self, indent):
         self = self.float()
 
     if self.dtype.is_complex:
+        self = self.resolve_conj()
         real_formatter = _Formatter(get_summarized_data(self.real) if summarize else self.real)
         imag_formatter = _Formatter(get_summarized_data(self.imag) if summarize else self.imag)
         return _tensor_str_with_formatter(self, indent, summarize, real_formatter, imag_formatter)
