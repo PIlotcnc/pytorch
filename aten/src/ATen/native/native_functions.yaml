@@ -3480,20 +3480,22 @@
 
 - func: std(Tensor self, bool unbiased=True) -> Tensor
   variants: function, method
-  dispatch:
-    CPU, CUDA: std
 
 - func: std.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> Tensor
+  variants: function, method
+
+- func: std.correction(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False) -> Tensor
   variants: function, method
   dispatch:
     CPU, CUDA: std
 
 - func: std_mean(Tensor self, bool unbiased=True) -> (Tensor, Tensor)
   variants: function
-  dispatch:
-    CPU, CUDA: std_mean
 
 - func: std_mean.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> (Tensor, Tensor)
+  variants: function
+
+- func: std_mean.correction(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False) -> (Tensor, Tensor)
   variants: function
   dispatch:
     CPU, CUDA: std_mean
@@ -3501,7 +3503,12 @@
 - func: std_mean.names_dim(Tensor self, Dimname[1] dim, bool unbiased=True, bool keepdim=False) -> (Tensor, Tensor)
   variants: function
 
+- func: std_mean.correction_names(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False) -> (Tensor, Tensor)
+  variants: function
+
 - func: std.out(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+
+- func: std.correction_out(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False, Tensor(a!) out) -> Tensor(a!)
   dispatch:
     CPU, CUDA: std_out
 
@@ -3509,6 +3516,12 @@
   variants: function, method
 
 - func: std.names_out(Tensor self, Dimname[1] dim, bool unbiased=True, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+
+- func: std.correction_names(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False) -> Tensor
+  variants: function, method
+
+- func: std.correction_names_out(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False, Tensor(a!) out) -> Tensor(a!)
+  variants: function
 
 - func: prod(Tensor self, *, ScalarType? dtype=None) -> Tensor
   variants: function, method
@@ -3758,15 +3771,18 @@
 
 - func: var(Tensor self, bool unbiased=True) -> Tensor
   variants: function, method
-  dispatch:
-    CPU, CUDA: var
 
 - func: var.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> Tensor
+  variants: function, method
+
+- func: var.correction(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False) -> Tensor
   variants: function, method
   dispatch:
     CPU, CUDA: var
 
 - func: var.out(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
+
+- func: var.correction_out(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False, Tensor(a!) out) -> Tensor(a!)
   dispatch:
     CPU, CUDA: var_out
 
@@ -3775,17 +3791,27 @@
 
 - func: var.names_out(Tensor self, Dimname[1] dim, bool unbiased=True, bool keepdim=False, *, Tensor(a!) out) -> Tensor(a!)
 
+- func: var.correction_names(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False) -> Tensor
+  variants: function, method
+
+- func: var.correction_names_out(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False, Tensor(a!) out) -> Tensor(a!)
+  variants: function
+
 - func: var_mean(Tensor self, bool unbiased=True) -> (Tensor, Tensor)
   variants: function
-  dispatch:
-    CPU, CUDA: var_mean
 
 - func: var_mean.dim(Tensor self, int[1] dim, bool unbiased=True, bool keepdim=False) -> (Tensor, Tensor)
+  variants: function
+
+- func: var_mean.correction(Tensor self, int[1]? dim, *, int? correction, bool keepdim=False) -> (Tensor, Tensor)
   variants: function
   dispatch:
     CPU, CUDA: var_mean
 
 - func: var_mean.names_dim(Tensor self, Dimname[1] dim, bool unbiased=True, bool keepdim=False) -> (Tensor, Tensor)
+  variants: function
+
+- func: var_mean.correction_names(Tensor self, Dimname[1] dim, *, int? correction, bool keepdim=False) -> (Tensor, Tensor)
   variants: function
 
 - func: view_as(Tensor(a) self, Tensor other) -> Tensor(a)
@@ -6333,14 +6359,6 @@
   dispatch:
     CPU: _cumprod_out_cpu
     CUDA: _cumprod_out_cuda
-
-- func: _var(Tensor self, bool unbiased=True) -> Tensor
-  dispatch:
-    CPU: legacy::cpu::_th_var
-
-- func: _std(Tensor self, bool unbiased=True) -> Tensor
-  dispatch:
-    CPU: legacy::cpu::_th_std
 
 - func: _amp_foreach_non_finite_check_and_unscale_(Tensor(a!)[] self, Tensor(b!) found_inf, Tensor inv_scale) -> ()
   variants: function
