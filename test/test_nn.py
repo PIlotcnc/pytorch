@@ -12948,6 +12948,58 @@ class TestNNDeviceType(NNTestCase):
         helper(2, 8, 4, 4, ks=2)
         helper(None, 3, 50, 50, ks=5)
 
+    @onlyCPU
+    @dtypes(torch.float, torch.double)
+    def test_adaptive_pooling_max_nhwc(self, device, dtype):
+        input = torch.randint(1, 10, (4, 8, 8, 8), dtype=dtype).to(device)
+        input = input.contiguous(memory_format=torch.channels_last).requires_grad_()
+        grad = torch.randint(1, 10, (4, 8, 7, 7), dtype=dtype).to(device)
+        pool = torch.nn.AdaptiveMaxPool2d((7, 7), return_indices=True).to(device)
+
+        ref_input = input.detach().clone().contiguous().requires_grad_(True)
+        ref_grad = grad.detach().clone().contiguous()
+        ref_pool = torch.nn.AdaptiveMaxPool2d((7, 7), return_indices=True).to(device)
+
+        out, ind = pool(input)
+        out.backward(grad)
+        ref_out, ref_ind = ref_pool(ref_input)
+        ref_out.backward(ref_grad)
+
+        self.assertTrue(out.is_contiguous(memory_format=torch.channels_last))
+        self.assertTrue(ref_out.is_contiguous())
+        self.assertTrue(ind.is_contiguous(memory_format=torch.channels_last))
+        self.assertTrue(ref_ind.is_contiguous())
+        self.assertEqual(out, ref_out)
+        self.assertEqual(ind, ref_ind)
+        self.assertEqual(input.grad, ref_input.grad)
+
+    @onlyCPU
+    @dtypes(torch.float, torch.double)
+    def test_adaptive_pooling_max_nhwc_non_contiguous(self, device, dtype):
+        input = torch.randint(1, 10, (4, 8, 8, 8), dtype=dtype).to(device)
+        input = input.contiguous(memory_format=torch.channels_last)
+        input = input[:, ::2, :, :].requires_grad_()
+        grad = torch.randint(1, 10, (4, 8, 7, 7), dtype=dtype).to(device)
+        grad = grad[:, ::2, :, :]
+        pool = torch.nn.AdaptiveMaxPool2d((7, 7), return_indices=True).to(device)
+
+        ref_input = input.detach().clone().contiguous().requires_grad_(True)
+        ref_grad = grad.detach().clone().contiguous()
+        ref_pool = torch.nn.AdaptiveMaxPool2d((7, 7), return_indices=True).to(device)
+
+        out, ind = pool(input)
+        out.backward(grad)
+        ref_out, ref_ind = ref_pool(ref_input)
+        ref_out.backward(ref_grad)
+
+        self.assertTrue(out.is_contiguous(memory_format=torch.channels_last))
+        self.assertTrue(ref_out.is_contiguous())
+        self.assertTrue(ind.is_contiguous(memory_format=torch.channels_last))
+        self.assertTrue(ref_ind.is_contiguous())
+        self.assertEqual(out, ref_out)
+        self.assertEqual(ind, ref_ind)
+        self.assertEqual(input.grad, ref_input.grad)
+
     def test_embedding_dense_grad(self, device):
         embd = nn.Embedding(20, 20).to(device)
         weight = embd.weight
