@@ -25,7 +25,6 @@ SparseCsrTensor new_csr_tensor(const TensorOptions& options) {
   if (options.device().is_cuda()) {
     dispatch_key = DispatchKey::SparseCsrCUDA;
   } else {
-    TORCH_INTERNAL_ASSERT(options.device().is_cpu());
     dispatch_key = DispatchKey::SparseCsrCPU;
   }
 
@@ -47,6 +46,9 @@ Tensor sparse_csr_tensor(
     c10::optional<bool> pin_memory) {
   // See [Note: hacky wrapper removal for TensorOptions]
   TensorOptions options = TensorOptions().dtype(dtype).layout(layout).device(device).pinned_memory(pin_memory);
+  TORCH_CHECK_NOT_IMPLEMENTED(
+    options.device().type() == kCPU || options.device().type() == kCUDA,
+     "Could not run '", "sparse_csr_tensor", "' from the '", options.device(), "' device.)");
   TORCH_CHECK(
       options.layout() == kSparseCsr,
       "expected sparse CSR layout, but got layout ",
