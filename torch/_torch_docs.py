@@ -8144,6 +8144,8 @@ Example::
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample deviation is calculated, without any correction.
 
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
+
 Args:
     {input}
     {dim}
@@ -8161,6 +8163,8 @@ Calculates the standard deviation of all elements in the :attr:`input` tensor.
 
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample deviation is calculated, without any correction.
+
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
 
 Args:
     {input}
@@ -8223,6 +8227,8 @@ If :attr:`unbiased` is ``True``, Bessel's correction will be used to calculate
 the standard deviation. Otherwise, the sample deviation is calculated, without
 any correction.
 
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
+
 Args:
     {input}
     {dim}
@@ -8243,6 +8249,8 @@ tensor.
 
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample deviation is calculated, without any correction.
+
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
 
 Args:
     {input}
@@ -9454,6 +9462,8 @@ Example::
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample variance is calculated, without any correction.
 
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
+
 Args:
     {input}
     {dim}
@@ -9470,6 +9480,8 @@ Calculates the variance of all elements in the :attr:`input` tensor.
 
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample deviation is calculated, without any correction.
+
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
 
 Args:
     {input}
@@ -9531,6 +9543,8 @@ If :attr:`unbiased` is ``True``, Bessel's correction will be used to calculate
 the variance. Otherwise, the sample variance is calculated, without any
 correction.
 
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
+
 Args:
     {input}
     {dim}
@@ -9551,6 +9565,8 @@ tensor.
 
 If :attr:`unbiased` is ``True``, Bessel's correction will be used.
 Otherwise, the sample deviation is calculated, without any correction.
+
+.. deprecated:: :attr:`unbiased` is deprecated, use :attr:`correction` instead.
 
 Args:
     {input}
