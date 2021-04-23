@@ -941,7 +941,7 @@ at::Tensor _convolution(
           params.stride,
           params.padding);
   } else if (input.device().is_cpu() || input.is_cuda()) {
-    bool is_channels_last_supported = !params.transposed && (input.ndimension() == 4) &&
+    bool is_channels_last_supported = (input.ndimension() == 4) &&
         !params.use_nnpack(input, weight) && input.device().is_cpu() &&
         !params.is_dilated();
     if (is_channels_last_supported) {
