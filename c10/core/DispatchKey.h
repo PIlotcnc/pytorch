@@ -148,6 +148,10 @@ enum class DispatchKey : uint8_t {
   // constituent parts.
   Named,
 
+  // The Negative dispatch key is set for any tensors that need to perform negation
+  // This is implemented at a dispatch level right before any backends run
+  Negative,
+
   // The Conjugate dispatch key is set for any tensors that need to perform conjugation
   // This is implemented at a dispatch level right before any backends run
   Conjugate,
